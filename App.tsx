@@ -147,7 +147,7 @@ export default function App() {
         <StudentDetailScreen
           student={selectedStudent.student}
           schoolName={selectedStudent.schoolName}
-          onBack={() => setCurrentScreen('Create')}
+          onBack={() => setCurrentScreen('Routes')}
           onNavigateToHome={navigateBackToHome}
           onNavigateToPayment={navigateToPayment}
           onNavigateToCreate={() => setCurrentScreen('Create')}
@@ -162,6 +162,7 @@ export default function App() {
           onNavigateToPayment={navigateToPayment}
           onNavigateToCreate={navigateToCreate}
           onNavigateToProfile={navigateToProfile}
+          onNavigateToStudentDetail={navigateToStudentDetail}
         />
       ) : (
         <HomeScreen 
