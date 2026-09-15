@@ -1,7 +1,9 @@
 // API Configuration
-const API_BASE_URL = __DEV__ 
-  ? 'http://192.168.1.106:3000/api' 
-  : 'https://your-production-api.com/api';
+// No hosted backend yet — the app talks to the Express server running on
+// your Mac (see backend/), so the phone must be on the same Wi-Fi network
+// and backend/server.js must be running. Update this IP if your Mac's LAN
+// address changes (check with `ipconfig getifaddr en0`).
+const API_BASE_URL = 'http://192.168.1.2:3001/api';
 
 // API Response Interface
 interface ApiResponse<T> {
@@ -121,6 +123,51 @@ export interface StudentsResponse {
 export interface CheckStudentsResponse {
   hasStudents: boolean;
   studentCount: number;
+}
+
+// Payment Interfaces
+export type PaymentStatus = 'Paid' | 'Due' | 'Overdue';
+
+export interface Payment {
+  id: string;
+  studentId: string;
+  student?: {
+    id: string;
+    name: string;
+    contactNumber: string;
+    school?: { id: string; schoolName: string };
+  };
+  year: number;
+  month: number;
+  monthName: string;
+  amountDue: number;
+  amountPaid: number;
+  status: PaymentStatus;
+  dueDate: string;
+  paidDate?: string;
+  paymentMode?: 'Cash' | 'Online';
+  notes?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface PaymentDashboard {
+  year: number;
+  month: number;
+  monthName: string;
+  totalStudents: number;
+  paidCount: number;
+  dueCount: number;
+  overdueCount: number;
+  totalCollected: number;
+  totalPending: number;
+  students: Payment[];
+}
+
+export interface MarkPaidData {
+  amountPaid?: number;
+  paymentMode?: 'Cash' | 'Online';
+  paidDate?: string;
 }
 
 // Storage helpers for token management
@@ -474,9 +521,97 @@ export const studentAPI = {
   },
 };
 
+// Payment API functions
+export const paymentAPI = {
+  // Get the payment dashboard summary for a given month (defaults to current month)
+  getDashboard: async (userId: string, year?: number, month?: number): Promise<PaymentDashboard> => {
+    const query = year && month ? `?year=${year}&month=${month}` : '';
+    const response = await apiRequest<PaymentDashboard>(`/payments/dashboard/${userId}${query}`);
+
+    if (response.success && response.data) {
+      return response.data;
+    }
+
+    throw new Error(response.message || 'Failed to fetch payment dashboard');
+  },
+
+  // Get the most recently paid payments across all students (recent activity feed)
+  getRecent: async (userId: string, limit = 5): Promise<Payment[]> => {
+    const response = await apiRequest<{ payments: Payment[] }>(`/payments/recent/${userId}?limit=${limit}`);
+
+    if (response.success && response.data) {
+      return response.data.payments;
+    }
+
+    throw new Error(response.message || 'Failed to fetch recent payments');
+  },
+
+  // Get the full monthly payment ledger for a student
+  getStudentHistory: async (studentId: string): Promise<Payment[]> => {
+    const response = await apiRequest<{ count: number; payments: Payment[] }>(`/payments/student/${studentId}`);
+
+    if (response.success && response.data) {
+      return response.data.payments;
+    }
+
+    throw new Error(response.message || 'Failed to fetch payment history');
+  },
+
+  // Mark a single month's payment as paid
+  markPaid: async (paymentId: string, data: MarkPaidData = {}): Promise<Payment> => {
+    const response = await apiRequest<{ payment: Payment }>(`/payments/${paymentId}/mark-paid`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+
+    if (response.success && response.data) {
+      return response.data.payment;
+    }
+
+    throw new Error(response.message || 'Failed to mark payment as paid');
+  },
+
+  // Mark several months as paid at once (advance / lump-sum payments)
+  bulkMarkPaid: async (paymentIds: string[], data: MarkPaidData = {}): Promise<number> => {
+    const response = await apiRequest<{ updatedCount: number }>('/payments/bulk-mark-paid', {
+      method: 'POST',
+      body: JSON.stringify({ paymentIds, ...data }),
+    });
+
+    if (response.success && response.data) {
+      return response.data.updatedCount;
+    }
+
+    throw new Error(response.message || 'Failed to mark payments as paid');
+  },
+
+  // Create (or update) a run of monthly payment rows for a student, splitting
+  // one total amount evenly across them — for a custom enrollment period
+  // (e.g. joining mid-year for just a few months).
+  createTerm: async (data: {
+    studentId: string;
+    startYear: number;
+    startMonth: number;
+    durationMonths: number;
+    totalAmount: number;
+  }): Promise<number> => {
+    const response = await apiRequest<{ count: number }>('/payments/create-term', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+
+    if (response.success && response.data) {
+      return response.data.count;
+    }
+
+    throw new Error(response.message || 'Failed to create payment term');
+  },
+};
+
 export default {
   authAPI,
   userAPI,
   schoolAPI,
   studentAPI,
+  paymentAPI,
 };

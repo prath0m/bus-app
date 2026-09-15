@@ -1,5 +1,6 @@
-import React, { useState, useEffect } from 'react';
-import { View } from 'react-native';
+import React, { useState, useEffect, useRef } from 'react';
+import { View, AppState, AppStateStatus } from 'react-native';
+import { StatusBar } from 'expo-status-bar';
 import LoginScreen from './src/screens/LoginScreen';
 import SignUpScreen from './src/screens/SignUpScreen';
 import HomeScreen from './src/screens/HomeScreen';
@@ -9,26 +10,58 @@ import PaymentScreen from './src/screens/PaymentScreen';
 import CreateScreen from './src/screens/CreateScreen';
 import RoutesScreen from './src/screens/RoutesScreen';
 import StudentDetailScreen from './src/screens/StudentDetailScreen';
+import HistoryScreen from './src/screens/HistoryScreen';
+import LockScreen from './src/screens/LockScreen';
 import { authAPI, User, Student } from './src/services/api';
+import { requestNotificationPermission } from './src/utils/notifications';
+import { ThemeProvider, useAppTheme } from './src/context/ThemeContext';
+import { isAppLockEnabled } from './src/utils/appLock';
 
-type ScreenType = 'Login' | 'SignUp' | 'Home' | 'Profile' | 'Settings' | 'Payment' | 'Create' | 'Routes' | 'StudentDetail';
+type ScreenType = 'Login' | 'SignUp' | 'Home' | 'Profile' | 'Settings' | 'Payment' | 'Create' | 'Routes' | 'StudentDetail' | 'History';
 
 export default function App() {
+  return (
+    <ThemeProvider>
+      <AppContent />
+    </ThemeProvider>
+  );
+}
+
+function AppContent() {
+  const { colors, isDark } = useAppTheme();
   const [currentScreen, setCurrentScreen] = useState<ScreenType>('Login');
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [selectedStudent, setSelectedStudent] = useState<{ student: Student; schoolName: string } | null>(null);
+  const [isLocked, setIsLocked] = useState(false);
+  const appState = useRef(AppState.currentState);
 
   // Check if user is already logged in
   useEffect(() => {
     checkAuthStatus();
+    requestNotificationPermission();
   }, []);
+
+  // Re-lock whenever the app leaves the foreground (if app lock is on), so
+  // it's already showing the PIN/biometric screen the instant it's reopened
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', async (nextState: AppStateStatus) => {
+      if (appState.current === 'active' && nextState !== 'active') {
+        const enabled = await isAppLockEnabled();
+        if (enabled && user) setIsLocked(true);
+      }
+      appState.current = nextState;
+    });
+    return () => subscription.remove();
+  }, [user]);
 
   const checkAuthStatus = async () => {
     try {
       const userData = await authAPI.verifyToken();
       setUser(userData);
       setCurrentScreen('Home');
+      const enabled = await isAppLockEnabled();
+      if (enabled) setIsLocked(true);
     } catch (error) {
       // User not logged in or token expired
       setCurrentScreen('Login');
@@ -70,6 +103,10 @@ export default function App() {
     setCurrentScreen('Routes');
   };
 
+  const navigateToHistory = () => {
+    setCurrentScreen('History');
+  };
+
   const navigateToStudentDetail = (student: Student, schoolName: string) => {
     setSelectedStudent({ student, schoolName });
     setCurrentScreen('StudentDetail');
@@ -85,20 +122,31 @@ export default function App() {
 
   const handleLogout = () => {
     setUser(null);
+    setIsLocked(false);
     setCurrentScreen('Login');
   };
 
   // Show loading screen while checking auth status
   if (isLoading) {
     return (
-      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: colors.bg }}>
         {/* You can add a loading spinner here */}
       </View>
     );
   }
 
+  if (isLocked && user) {
+    return (
+      <View style={{ flex: 1, backgroundColor: colors.bg }}>
+        <StatusBar style={isDark ? 'light' : 'dark'} />
+        <LockScreen onUnlock={() => setIsLocked(false)} />
+      </View>
+    );
+  }
+
   return (
-    <View style={{ flex: 1 }}>
+    <View style={{ flex: 1, backgroundColor: colors.bg }}>
+      <StatusBar style={isDark ? 'light' : 'dark'} />
       {currentScreen === 'Login' ? (
         <LoginScreen 
           onNavigateToSignUp={navigateToSignUp} 
@@ -125,10 +173,21 @@ export default function App() {
           onBack={navigateBackToHome}
         />
       ) : currentScreen === 'Payment' ? (
-        <PaymentScreen 
+        <PaymentScreen
           user={user!}
           onBack={navigateBackToHome}
           onNavigateToHome={navigateBackToHome}
+          onNavigateToCreate={navigateToCreate}
+          onNavigateToRoutes={navigateToRoutes}
+          onNavigateToProfile={navigateToProfile}
+          onNavigateToHistory={navigateToHistory}
+        />
+      ) : currentScreen === 'History' ? (
+        <HistoryScreen
+          user={user!}
+          onBack={navigateToPayment}
+          onNavigateToHome={navigateBackToHome}
+          onNavigateToPayment={navigateToPayment}
           onNavigateToCreate={navigateToCreate}
           onNavigateToRoutes={navigateToRoutes}
           onNavigateToProfile={navigateToProfile}
@@ -147,6 +206,7 @@ export default function App() {
         <StudentDetailScreen
           student={selectedStudent.student}
           schoolName={selectedStudent.schoolName}
+          user={user ?? undefined}
           onBack={() => setCurrentScreen('Routes')}
           onNavigateToHome={navigateBackToHome}
           onNavigateToPayment={navigateToPayment}
@@ -173,6 +233,7 @@ export default function App() {
           onNavigateToPayment={navigateToPayment}
           onNavigateToCreate={navigateToCreate}
           onNavigateToRoutes={navigateToRoutes}
+          onNavigateToHistory={navigateToHistory}
         />
       )}
     </View>

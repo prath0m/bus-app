@@ -1,9 +1,14 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Alert, TextInput, Modal, BackHandler } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, Alert, TextInput, Modal, BackHandler } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as Contacts from 'expo-contacts';
 import BottomNavigation, { TabName } from '../components/BottomNavigation';
-import { schoolAPI, studentAPI, School, Student } from '../services/api';
+import { schoolAPI, studentAPI, paymentAPI, School, Student } from '../services/api';
+import { ThemeColors } from '../utils/theme';
+import { useAppTheme, useThemedStyles } from '../context/ThemeContext';
+import TermPicker from '../components/ui/TermPicker';
+import { AnimatedPressable, FadeInView } from '../components/ui/Animated';
+import { MonthYear } from '../utils/monthRange';
 
 interface CreateScreenProps {
   user: {
@@ -61,6 +66,8 @@ const CreateScreen: React.FC<CreateScreenProps> = ({
   onNavigateToStudentDetail
 }) => {
   const activeTab: TabName = 'create';
+  const { colors } = useAppTheme();
+  const styles = useThemedStyles(createStyles);
   const [hasSchool, setHasSchool] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [showSchoolForm, setShowSchoolForm] = useState(false);
@@ -111,6 +118,18 @@ const CreateScreen: React.FC<CreateScreenProps> = ({
   const [showPaymentModeDropdown, setShowPaymentModeDropdown] = useState(false);
   const [showPaymentPeriodDropdown, setShowPaymentPeriodDropdown] = useState(false);
   const [isSubmittingStudent, setIsSubmittingStudent] = useState(false);
+
+  // "New Student" = a fresh admission, joining the bus today (or a chosen
+  // date), billed on a normal fixed period. "Existing Student" = a kid who's
+  // already riding the bus but is only now being registered in the app — so
+  // instead of a join date + fixed period (which would try to back-bill
+  // months before they were registered), the owner just picks a start month
+  // and how many months are left, and one amount is split across those.
+  const currentMonthYear: MonthYear = { year: new Date().getFullYear(), month: new Date().getMonth() + 1 };
+  const [studentMode, setStudentMode] = useState<'new' | 'existing'>('new');
+  const [termStart, setTermStart] = useState<MonthYear>(currentMonthYear);
+  const [termDuration, setTermDuration] = useState(4);
+  const [termAmount, setTermAmount] = useState('');
   
   // Check if user has created any schools
   useEffect(() => {
@@ -303,6 +322,7 @@ const CreateScreen: React.FC<CreateScreenProps> = ({
 
       console.log('Setting available schools and showing form');
       setAvailableSchools(schools);
+      setStudentMode('new');
       setShowStudentForm(true);
     } catch (error) {
       console.error('Error fetching schools:', error);
@@ -310,40 +330,90 @@ const CreateScreen: React.FC<CreateScreenProps> = ({
     }
   };
 
+  const resetTermPicker = () => {
+    setTermStart(currentMonthYear);
+    setTermDuration(4);
+    setTermAmount('');
+  };
+
   const handleStudentFormSubmit = async () => {
-    // Validate form
-    if (!studentForm.name.trim() || !studentForm.schoolId || !studentForm.contactNumber.trim() || 
-        !studentForm.paymentMode || !studentForm.paymentPeriod || !studentForm.totalYearlyPayment.trim()) {
+    const isExisting = studentMode === 'existing';
+
+    // Common fields, required either way
+    if (!studentForm.name.trim() || !studentForm.schoolId || !studentForm.contactNumber.trim() || !studentForm.paymentMode) {
       Alert.alert('Error', 'Please fill in all fields.');
       return;
     }
 
-    // Validate yearly payment is a number
-    const yearlyPayment = parseFloat(studentForm.totalYearlyPayment);
-    if (isNaN(yearlyPayment) || yearlyPayment <= 0) {
-      Alert.alert('Error', 'Please enter a valid yearly payment amount.');
-      return;
+    // New admissions pick a join date + fixed period; existing riders (already
+    // on the bus, just registering late) always use the start-month + duration
+    // picker instead, so the amount comes from there
+    let amount: number;
+    if (isExisting) {
+      amount = parseFloat(termAmount);
+      if (isNaN(amount) || amount <= 0) {
+        Alert.alert('Error', 'Please enter a valid amount for this period.');
+        return;
+      }
+    } else {
+      if (!studentForm.paymentPeriod || !studentForm.totalYearlyPayment.trim()) {
+        Alert.alert('Error', 'Please fill in all fields.');
+        return;
+      }
+      amount = parseFloat(studentForm.totalYearlyPayment);
+      if (isNaN(amount) || amount <= 0) {
+        Alert.alert('Error', 'Please enter a valid amount.');
+        return;
+      }
     }
 
     setIsSubmittingStudent(true);
     try {
+      // An existing rider's billing should start from the term's first month,
+      // not their real (unknown/unregistered) join date — otherwise the
+      // automatic monthly ledger would try to back-bill months before they
+      // were ever added to the app
+      const dateOfJoining = isExisting
+        ? new Date(termStart.year, termStart.month - 1, 1).toISOString().split('T')[0]
+        : studentForm.dateOfJoining;
+
       const studentData = {
         name: studentForm.name.trim(),
-        dateOfJoining: studentForm.dateOfJoining,
+        dateOfJoining,
         schoolId: studentForm.schoolId,
         contactNumber: studentForm.contactNumber.trim(),
         paymentMode: studentForm.paymentMode,
-        paymentPeriod: studentForm.paymentPeriod,
-        totalYearlyPayment: yearlyPayment,
+        paymentPeriod: isExisting ? 'Custom' : studentForm.paymentPeriod,
+        totalYearlyPayment: amount,
         userId: user.id
       };
 
       console.log('Creating student with data:', studentData);
-      
+
       const createdStudent = await studentAPI.createStudent(studentData);
-      
+
       console.log('Student created successfully:', createdStudent);
-      
+
+      // Existing riders always get a custom term; new admissions only need
+      // one when "Custom" was picked as the payment period
+      if (isExisting || studentForm.paymentPeriod === 'Custom') {
+        try {
+          await paymentAPI.createTerm({
+            studentId: createdStudent.id,
+            startYear: termStart.year,
+            startMonth: termStart.month,
+            durationMonths: termDuration,
+            totalAmount: amount,
+          });
+        } catch (termError) {
+          console.error('Error creating payment term:', termError);
+          Alert.alert(
+            'Student created, but payment term failed',
+            'The student was added, but the payment schedule could not be set up. You can adjust individual months from the Payments tab.'
+          );
+        }
+      }
+
       // Reset form and close modal
       setShowStudentForm(false);
       setStudentForm({
@@ -355,14 +425,15 @@ const CreateScreen: React.FC<CreateScreenProps> = ({
         paymentPeriod: '',
         totalYearlyPayment: ''
       });
-      
+      resetTermPicker();
+
       // Reload schools and students
       if (showListView) {
         await loadSchoolsAndStudents();
       }
-      
+
       Alert.alert(
-        'Success', 
+        'Success',
         `Student "${createdStudent.name}" created successfully!`,
         [{ text: 'OK', onPress: () => console.log('Student creation confirmed') }]
       );
@@ -386,6 +457,7 @@ const CreateScreen: React.FC<CreateScreenProps> = ({
       paymentPeriod: '',
       totalYearlyPayment: ''
     });
+    resetTermPicker();
   };
 
   const handleSchoolSelect = (school: School) => {
@@ -479,9 +551,9 @@ const CreateScreen: React.FC<CreateScreenProps> = ({
     <View style={styles.container}>
       {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity onPress={onBack} style={styles.backButton}>
-          <Ionicons name="arrow-back" size={24} color="#000" />
-        </TouchableOpacity>
+        <AnimatedPressable onPress={onBack} style={styles.backButton}>
+          <Ionicons name="arrow-back" size={24} color={colors.textPrimary} />
+        </AnimatedPressable>
         <Text style={styles.headerTitle}>Create New</Text>
         <View style={styles.placeholder} />
       </View>
@@ -491,10 +563,12 @@ const CreateScreen: React.FC<CreateScreenProps> = ({
         {showSchoolForm ? (
           // School Creation Form
           <>
-            <Text style={styles.title}>Create School</Text>
-            <Text style={styles.subtitle}>Enter your school information</Text>
-            
-            <View style={styles.formContainer}>
+            <FadeInView>
+              <Text style={styles.title}>Create School</Text>
+              <Text style={styles.subtitle}>Enter your school information</Text>
+            </FadeInView>
+
+            <FadeInView delay={60} style={styles.formContainer}>
               {/* School Name Field */}
               <View style={styles.inputGroup}>
                 <Text style={styles.inputLabel}>School Name *</Text>
@@ -524,7 +598,7 @@ const CreateScreen: React.FC<CreateScreenProps> = ({
               {/* Timing Field */}
               <View style={styles.inputGroup}>
                 <Text style={styles.inputLabel}>School Timing *</Text>
-                <TouchableOpacity
+                <AnimatedPressable
                   style={[styles.textInput, styles.selectorInput]}
                   onPress={() => setShowTimeModal(true)}
                   disabled={isSubmitting}
@@ -532,14 +606,14 @@ const CreateScreen: React.FC<CreateScreenProps> = ({
                   <Text style={[styles.selectorText, !schoolForm.timing && styles.placeholderText]}>
                     {schoolForm.timing || 'Select school timing'}
                   </Text>
-                  <Ionicons name="time-outline" size={20} color="#7f8c8d" />
-                </TouchableOpacity>
+                  <Ionicons name="time-outline" size={20} color={colors.textSecondary} />
+                </AnimatedPressable>
               </View>
 
               {/* Shift Field */}
               <View style={styles.inputGroup}>
                 <Text style={styles.inputLabel}>Shift *</Text>
-                <TouchableOpacity
+                <AnimatedPressable
                   style={[styles.textInput, styles.selectorInput]}
                   onPress={() => setShowShiftModal(true)}
                   disabled={isSubmitting}
@@ -547,21 +621,21 @@ const CreateScreen: React.FC<CreateScreenProps> = ({
                   <Text style={[styles.selectorText, !schoolForm.shift && styles.placeholderText]}>
                     {schoolForm.shift || 'Select shift'}
                   </Text>
-                  <Ionicons name="chevron-down" size={20} color="#7f8c8d" />
-                </TouchableOpacity>
+                  <Ionicons name="chevron-down" size={20} color={colors.textSecondary} />
+                </AnimatedPressable>
               </View>
 
               {/* Form Actions */}
               <View style={styles.formActions}>
-                <TouchableOpacity 
+                <AnimatedPressable 
                   style={styles.cancelButton} 
                   onPress={handleCancelForm}
                   disabled={isSubmitting}
                 >
                   <Text style={styles.cancelButtonText}>Cancel</Text>
-                </TouchableOpacity>
+                </AnimatedPressable>
                 
-                <TouchableOpacity 
+                <AnimatedPressable 
                   style={[styles.submitButton, isSubmitting && styles.disabledButton]} 
                   onPress={handleFormSubmit}
                   disabled={isSubmitting}
@@ -571,16 +645,42 @@ const CreateScreen: React.FC<CreateScreenProps> = ({
                   ) : (
                     <Text style={styles.submitButtonText}>Create School</Text>
                   )}
-                </TouchableOpacity>
+                </AnimatedPressable>
               </View>
-            </View>
+            </FadeInView>
           </>
         ) : showStudentForm ? (
           // Student Creation Form
           <>
+            <FadeInView>
             <Text style={styles.title}>Create Student</Text>
-            <Text style={styles.subtitle}>Enter student information</Text>
-            
+            <Text style={styles.subtitle}>
+              {studentMode === 'new'
+                ? 'A fresh admission, joining the bus now'
+                : 'Already riding the bus — just registering them in the app'}
+            </Text>
+            </FadeInView>
+
+            {/* New vs Existing Student toggle */}
+            <View style={styles.modeToggleRow}>
+              <AnimatedPressable
+                style={[styles.modeToggle, studentMode === 'new' && styles.modeToggleActive]}
+                onPress={() => setStudentMode('new')}
+              >
+                <Text style={[styles.modeToggleText, studentMode === 'new' && styles.modeToggleTextActive]}>
+                  New Student
+                </Text>
+              </AnimatedPressable>
+              <AnimatedPressable
+                style={[styles.modeToggle, studentMode === 'existing' && styles.modeToggleActive]}
+                onPress={() => setStudentMode('existing')}
+              >
+                <Text style={[styles.modeToggleText, studentMode === 'existing' && styles.modeToggleTextActive]}>
+                  Existing Student
+                </Text>
+              </AnimatedPressable>
+            </View>
+
             <View style={styles.formContainer}>
               {/* Student Name Field */}
               <View style={styles.inputGroup}>
@@ -594,22 +694,23 @@ const CreateScreen: React.FC<CreateScreenProps> = ({
                 />
               </View>
 
-              {/* Date of Joining Field */}
-              <View style={styles.inputGroup}>
-                <Text style={styles.inputLabel}>Date of Joining *</Text>
-                <TextInput
-                  style={styles.textInput}
-                  placeholder="YYYY-MM-DD"
-                  value={studentForm.dateOfJoining}
-                  onChangeText={(text) => setStudentForm(prev => ({ ...prev, dateOfJoining: text }))}
-                  editable={!isSubmittingStudent}
-                />
-              </View>
+              {studentMode === 'new' && (
+                <View style={styles.inputGroup}>
+                  <Text style={styles.inputLabel}>Date of Joining *</Text>
+                  <TextInput
+                    style={styles.textInput}
+                    placeholder="YYYY-MM-DD"
+                    value={studentForm.dateOfJoining}
+                    onChangeText={(text) => setStudentForm(prev => ({ ...prev, dateOfJoining: text }))}
+                    editable={!isSubmittingStudent}
+                  />
+                </View>
+              )}
 
               {/* School Selection Dropdown */}
               <View style={styles.inputGroup}>
                 <Text style={styles.inputLabel}>School *</Text>
-                <TouchableOpacity
+                <AnimatedPressable
                   style={styles.selectorInput}
                   onPress={() => setShowSchoolDropdown(true)}
                   disabled={isSubmittingStudent}
@@ -619,8 +720,8 @@ const CreateScreen: React.FC<CreateScreenProps> = ({
                   ]}>
                     {getSelectedSchoolName() || 'Select School'}
                   </Text>
-                  <Ionicons name="chevron-down" size={20} color="#95A5A6" />
-                </TouchableOpacity>
+                  <Ionicons name="chevron-down" size={20} color={colors.textTertiary} />
+                </AnimatedPressable>
               </View>
 
               {/* Contact Number Field with Import Option */}
@@ -635,20 +736,20 @@ const CreateScreen: React.FC<CreateScreenProps> = ({
                     keyboardType="phone-pad"
                     editable={!isSubmittingStudent}
                   />
-                  <TouchableOpacity
+                  <AnimatedPressable
                     style={styles.importButton}
                     onPress={handleImportContact}
                     disabled={isSubmittingStudent}
                   >
-                    <Ionicons name="person-add" size={22} color="#fff" />
-                  </TouchableOpacity>
+                    <Ionicons name="person-add" size={22} color={colors.onPrimary} />
+                  </AnimatedPressable>
                 </View>
               </View>
 
               {/* Payment Mode Dropdown */}
               <View style={styles.inputGroup}>
                 <Text style={styles.inputLabel}>Payment Mode *</Text>
-                <TouchableOpacity
+                <AnimatedPressable
                   style={styles.selectorInput}
                   onPress={() => setShowPaymentModeDropdown(true)}
                   disabled={isSubmittingStudent}
@@ -658,52 +759,105 @@ const CreateScreen: React.FC<CreateScreenProps> = ({
                   ]}>
                     {studentForm.paymentMode || 'Select Payment Mode'}
                   </Text>
-                  <Ionicons name="chevron-down" size={20} color="#95A5A6" />
-                </TouchableOpacity>
+                  <Ionicons name="chevron-down" size={20} color={colors.textTertiary} />
+                </AnimatedPressable>
               </View>
 
-              {/* Payment Period Dropdown */}
-              <View style={styles.inputGroup}>
-                <Text style={styles.inputLabel}>Payment Period *</Text>
-                <TouchableOpacity
-                  style={styles.selectorInput}
-                  onPress={() => setShowPaymentPeriodDropdown(true)}
-                  disabled={isSubmittingStudent}
-                >
-                  <Text style={[
-                    studentForm.paymentPeriod ? styles.selectorText : styles.placeholderText
-                  ]}>
-                    {studentForm.paymentPeriod || 'Select Payment Period'}
-                  </Text>
-                  <Ionicons name="chevron-down" size={20} color="#95A5A6" />
-                </TouchableOpacity>
-              </View>
+              {studentMode === 'new' ? (
+                <>
+                  {/* Payment Period Dropdown */}
+                  <View style={styles.inputGroup}>
+                    <Text style={styles.inputLabel}>Payment Period *</Text>
+                    <AnimatedPressable
+                      style={styles.selectorInput}
+                      onPress={() => setShowPaymentPeriodDropdown(true)}
+                      disabled={isSubmittingStudent}
+                    >
+                      <Text style={[
+                        studentForm.paymentPeriod ? styles.selectorText : styles.placeholderText
+                      ]}>
+                        {studentForm.paymentPeriod || 'Select Payment Period'}
+                      </Text>
+                      <Ionicons name="chevron-down" size={20} color={colors.textTertiary} />
+                    </AnimatedPressable>
+                    {studentForm.paymentPeriod === 'Custom' && (
+                      <Text style={styles.helperText}>
+                        Pick the months this student is actually paying for below — handy for a school that opens in a different month each year.
+                      </Text>
+                    )}
+                  </View>
 
-              {/* Total Yearly Payment Field */}
-              <View style={styles.inputGroup}>
-                <Text style={styles.inputLabel}>Total Yearly Payment *</Text>
-                <TextInput
-                  style={styles.textInput}
-                  placeholder="Enter total yearly payment amount"
-                  value={studentForm.totalYearlyPayment}
-                  onChangeText={(text) => setStudentForm(prev => ({ ...prev, totalYearlyPayment: text }))}
-                  keyboardType="numeric"
-                  editable={!isSubmittingStudent}
-                />
-              </View>
+                  {/* Total Yearly Payment Field */}
+                  <View style={styles.inputGroup}>
+                    <Text style={styles.inputLabel}>
+                      {studentForm.paymentPeriod === 'Custom' ? 'Total Amount for This Period *' : 'Total Yearly Payment *'}
+                    </Text>
+                    <TextInput
+                      style={styles.textInput}
+                      placeholder="Enter amount"
+                      value={studentForm.totalYearlyPayment}
+                      onChangeText={(text) => setStudentForm(prev => ({ ...prev, totalYearlyPayment: text }))}
+                      keyboardType="numeric"
+                      editable={!isSubmittingStudent}
+                    />
+                  </View>
+
+                  {/* Custom Payment Term Picker */}
+                  {studentForm.paymentPeriod === 'Custom' && (
+                    <View style={styles.inputGroup}>
+                      <TermPicker
+                        start={termStart}
+                        durationMonths={termDuration}
+                        onChangeStart={setTermStart}
+                        onChangeDuration={setTermDuration}
+                        previewAmount={parseFloat(studentForm.totalYearlyPayment) || undefined}
+                      />
+                    </View>
+                  )}
+                </>
+              ) : (
+                <>
+                  {/* Total Amount for Remaining Period */}
+                  <View style={styles.inputGroup}>
+                    <Text style={styles.inputLabel}>Total Amount for This Period *</Text>
+                    <TextInput
+                      style={styles.textInput}
+                      placeholder="Enter amount"
+                      value={termAmount}
+                      onChangeText={setTermAmount}
+                      keyboardType="numeric"
+                      editable={!isSubmittingStudent}
+                    />
+                    <Text style={styles.helperText}>
+                      They already ride the bus, so no need to bill for months before today — just pick when to start counting and for how long.
+                    </Text>
+                  </View>
+
+                  {/* Payment Term Picker */}
+                  <View style={styles.inputGroup}>
+                    <TermPicker
+                      start={termStart}
+                      durationMonths={termDuration}
+                      onChangeStart={setTermStart}
+                      onChangeDuration={setTermDuration}
+                      previewAmount={parseFloat(termAmount) || undefined}
+                    />
+                  </View>
+                </>
+              )}
 
               {/* Form Actions */}
               <View style={styles.formActions}>
-                <TouchableOpacity
+                <AnimatedPressable
                   style={styles.cancelButton}
                   onPress={handleCancelStudentForm}
                   disabled={isSubmittingStudent}
                 >
                   <Text style={styles.cancelButtonText}>Cancel</Text>
-                </TouchableOpacity>
-                
-                <TouchableOpacity
-                  style={[styles.submitButton, isSubmittingStudent && styles.disabledButton]} 
+                </AnimatedPressable>
+
+                <AnimatedPressable
+                  style={[styles.submitButton, isSubmittingStudent && styles.disabledButton]}
                   onPress={handleStudentFormSubmit}
                   disabled={isSubmittingStudent}
                 >
@@ -712,7 +866,7 @@ const CreateScreen: React.FC<CreateScreenProps> = ({
                   ) : (
                     <Text style={styles.submitButtonText}>Create Student</Text>
                   )}
-                </TouchableOpacity>
+                </AnimatedPressable>
               </View>
             </View>
           </>
@@ -720,14 +874,17 @@ const CreateScreen: React.FC<CreateScreenProps> = ({
           // Main Create Options AND Schools List View
           <>
             {/* Create New Options Section */}
-            <Text style={styles.title}>Create New</Text>
-            <Text style={styles.subtitle}>Choose what you want to create</Text>
-        
+            <FadeInView>
+              <Text style={styles.title}>Create New</Text>
+              <Text style={styles.subtitle}>Choose what you want to create</Text>
+            </FadeInView>
+
             {/* School Creation Card */}
-            <TouchableOpacity style={styles.optionCard} onPress={handleCreateSchool}>
+            <FadeInView delay={60}>
+            <AnimatedPressable style={styles.optionCard} onPress={handleCreateSchool}>
               <View style={styles.cardHeader}>
-                <View style={[styles.iconContainer, { backgroundColor: '#f0f0f0' }]}>
-                  <Ionicons name="school" size={32} color="#000" />
+                <View style={[styles.iconContainer, { backgroundColor: colors.surfaceAlt }]}>
+                  <Ionicons name="school" size={32} color={colors.textPrimary} />
                 </View>
                 <View style={styles.cardContent}>
                   <Text style={styles.cardTitle}>Create School</Text>
@@ -735,28 +892,30 @@ const CreateScreen: React.FC<CreateScreenProps> = ({
                     Set up your school information and bus routes
                   </Text>
                 </View>
-                <Ionicons name="chevron-forward" size={24} color="#BDC3C7" />
+                <Ionicons name="chevron-forward" size={24} color={colors.textTertiary} />
               </View>
-            </TouchableOpacity>
+            </AnimatedPressable>
+            </FadeInView>
 
             {/* Student Creation Card */}
-            <TouchableOpacity 
+            <FadeInView delay={120}>
+            <AnimatedPressable
               style={[
                 styles.optionCard,
                 !hasSchool && styles.disabledCard
-              ]} 
+              ]}
               onPress={handleCreateStudent}
               disabled={!hasSchool}
             >
               <View style={styles.cardHeader}>
                 <View style={[
                   styles.iconContainer, 
-                  { backgroundColor: hasSchool ? '#f0f0f0' : '#F5F5F5' }
+                  { backgroundColor: hasSchool ? colors.surfaceAlt : colors.surfaceAlt }
                 ]}>
                   <Ionicons 
                     name="person-add" 
                     size={32} 
-                    color={hasSchool ? '#000' : '#BDC3C7'} 
+                    color={hasSchool ? colors.primary : colors.textTertiary}
                   />
                 </View>
                 <View style={styles.cardContent}>
@@ -778,22 +937,23 @@ const CreateScreen: React.FC<CreateScreenProps> = ({
                 </View>
                 {!hasSchool && (
                   <View style={styles.lockContainer}>
-                    <Ionicons name="lock-closed" size={20} color="#E74C3C" />
+                    <Ionicons name="lock-closed" size={20} color={colors.danger} />
                   </View>
                 )}
                 {hasSchool && (
-                  <Ionicons name="chevron-forward" size={24} color="#BDC3C7" />
+                  <Ionicons name="chevron-forward" size={24} color={colors.textTertiary} />
                 )}
               </View>
               {!hasSchool && (
                 <View style={styles.warningBanner}>
-                  <Ionicons name="warning" size={16} color="#E74C3C" />
+                  <Ionicons name="warning" size={16} color={colors.danger} />
                   <Text style={styles.warningText}>
                     School creation required
                   </Text>
                 </View>
               )}
-            </TouchableOpacity>
+            </AnimatedPressable>
+            </FadeInView>
 
             {/* School Status */}
             <View style={styles.statusContainer}>
@@ -801,7 +961,7 @@ const CreateScreen: React.FC<CreateScreenProps> = ({
                 <Ionicons 
                   name={hasSchool ? "checkmark-circle" : "information-circle"} 
                   size={20} 
-                  color={hasSchool ? "#000" : "#F39C12"} 
+                  color={hasSchool ? colors.success : colors.warning}
                 />
                 <Text style={styles.statusTitle}>
                   {hasSchool ? "School Created" : "Getting Started"}
@@ -830,10 +990,11 @@ const CreateScreen: React.FC<CreateScreenProps> = ({
                 </View>
 
                 {/* Schools List */}
-                {userSchools.map((school) => (
-                  <View key={school.id} style={styles.schoolCard}>
+                {userSchools.map((school, schoolIndex) => (
+                  <FadeInView key={school.id} delay={Math.min(schoolIndex, 5) * 50}>
+                  <View style={styles.schoolCard}>
                     {/* School Header */}
-                    <TouchableOpacity 
+                    <AnimatedPressable 
                       onPress={() => setExpandedSchool(expandedSchool === school.id ? null : school.id)}
                       style={styles.schoolCardHeader}
                     >
@@ -848,10 +1009,10 @@ const CreateScreen: React.FC<CreateScreenProps> = ({
                         <Ionicons 
                           name={expandedSchool === school.id ? "chevron-up" : "chevron-down"} 
                           size={24} 
-                          color="#000" 
+                          color={colors.textPrimary} 
                         />
                       </View>
-                    </TouchableOpacity>
+                    </AnimatedPressable>
 
                     {/* School Details */}
                     {expandedSchool === school.id && (
@@ -869,18 +1030,18 @@ const CreateScreen: React.FC<CreateScreenProps> = ({
                         <View style={styles.studentsSection}>
                           <View style={styles.sectionHeader}>
                             <Text style={styles.sectionTitle}>Students</Text>
-                            <TouchableOpacity 
+                            <AnimatedPressable 
                               onPress={handleCreateStudent}
                               style={styles.addStudentBtn}
                             >
-                              <Ionicons name="add" size={20} color="#000" />
-                            </TouchableOpacity>
+                              <Ionicons name="add" size={20} color={colors.textPrimary} />
+                            </AnimatedPressable>
                           </View>
 
                           {schoolStudents[school.id] && schoolStudents[school.id].length > 0 ? (
                             <View>
                               {schoolStudents[school.id].map((student) => (
-                                <TouchableOpacity 
+                                <AnimatedPressable 
                                   key={student.id}
                                   onPress={() => onNavigateToStudentDetail?.(student, school.schoolName)}
                                   style={styles.studentItem}
@@ -897,26 +1058,27 @@ const CreateScreen: React.FC<CreateScreenProps> = ({
                                   <View style={styles.studentPayment}>
                                     <Text style={styles.paymentMode}>{student.paymentMode}</Text>
                                   </View>
-                                  <Ionicons name="chevron-forward" size={20} color="#999" />
-                                </TouchableOpacity>
+                                  <Ionicons name="chevron-forward" size={20} color={colors.textTertiary} />
+                                </AnimatedPressable>
                               ))}
                             </View>
                           ) : (
                             <View style={styles.emptyState}>
-                              <Ionicons name="person-outline" size={32} color="#BDC3C7" />
+                              <Ionicons name="person-outline" size={32} color={colors.textTertiary} />
                               <Text style={styles.emptyStateText}>No students yet</Text>
-                              <TouchableOpacity 
+                              <AnimatedPressable 
                                 style={styles.emptyStateButton}
                                 onPress={handleCreateStudent}
                               >
                                 <Text style={styles.emptyStateButtonText}>Add First Student</Text>
-                              </TouchableOpacity>
+                              </AnimatedPressable>
                             </View>
                           )}
                         </View>
                       </View>
                     )}
                   </View>
+                  </FadeInView>
                 ))}
               </>
             )}
@@ -944,7 +1106,7 @@ const CreateScreen: React.FC<CreateScreenProps> = ({
                     <Text style={styles.timeSectionHeaderText}>Morning (AM)</Text>
                   </View>
                   {getGroupedTimes().amTimes.map((time) => (
-                    <TouchableOpacity
+                    <AnimatedPressable
                       key={`start-${time}`}
                       style={[styles.timeOption, startTime === time && styles.selectedTimeOption]}
                       onPress={() => setStartTime(time)}
@@ -952,7 +1114,7 @@ const CreateScreen: React.FC<CreateScreenProps> = ({
                       <Text style={[styles.timeOptionText, startTime === time && styles.selectedTimeOptionText]}>
                         {time}
                       </Text>
-                    </TouchableOpacity>
+                    </AnimatedPressable>
                   ))}
                   
                   {/* Afternoon/Evening Times (PM) */}
@@ -960,7 +1122,7 @@ const CreateScreen: React.FC<CreateScreenProps> = ({
                     <Text style={styles.timeSectionHeaderText}>Afternoon/Evening (PM)</Text>
                   </View>
                   {getGroupedTimes().pmTimes.map((time) => (
-                    <TouchableOpacity
+                    <AnimatedPressable
                       key={`start-${time}`}
                       style={[styles.timeOption, startTime === time && styles.selectedTimeOption]}
                       onPress={() => setStartTime(time)}
@@ -968,7 +1130,7 @@ const CreateScreen: React.FC<CreateScreenProps> = ({
                       <Text style={[styles.timeOptionText, startTime === time && styles.selectedTimeOptionText]}>
                         {time}
                       </Text>
-                    </TouchableOpacity>
+                    </AnimatedPressable>
                   ))}
                 </ScrollView>
               </View>
@@ -981,7 +1143,7 @@ const CreateScreen: React.FC<CreateScreenProps> = ({
                     <Text style={styles.timeSectionHeaderText}>Morning (AM)</Text>
                   </View>
                   {getGroupedTimes().amTimes.map((time) => (
-                    <TouchableOpacity
+                    <AnimatedPressable
                       key={`end-${time}`}
                       style={[styles.timeOption, endTime === time && styles.selectedTimeOption]}
                       onPress={() => setEndTime(time)}
@@ -989,7 +1151,7 @@ const CreateScreen: React.FC<CreateScreenProps> = ({
                       <Text style={[styles.timeOptionText, endTime === time && styles.selectedTimeOptionText]}>
                         {time}
                       </Text>
-                    </TouchableOpacity>
+                    </AnimatedPressable>
                   ))}
                   
                   {/* Afternoon/Evening Times (PM) */}
@@ -997,7 +1159,7 @@ const CreateScreen: React.FC<CreateScreenProps> = ({
                     <Text style={styles.timeSectionHeaderText}>Afternoon/Evening (PM)</Text>
                   </View>
                   {getGroupedTimes().pmTimes.map((time) => (
-                    <TouchableOpacity
+                    <AnimatedPressable
                       key={`end-${time}`}
                       style={[styles.timeOption, endTime === time && styles.selectedTimeOption]}
                       onPress={() => setEndTime(time)}
@@ -1005,25 +1167,25 @@ const CreateScreen: React.FC<CreateScreenProps> = ({
                       <Text style={[styles.timeOptionText, endTime === time && styles.selectedTimeOptionText]}>
                         {time}
                       </Text>
-                    </TouchableOpacity>
+                    </AnimatedPressable>
                   ))}
                 </ScrollView>
               </View>
             </View>
 
             <View style={styles.modalActions}>
-              <TouchableOpacity
+              <AnimatedPressable
                 style={styles.modalCancelButton}
                 onPress={() => setShowTimeModal(false)}
               >
                 <Text style={styles.modalCancelText}>Cancel</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
+              </AnimatedPressable>
+              <AnimatedPressable
                 style={styles.modalConfirmButton}
                 onPress={handleTimeConfirm}
               >
                 <Text style={styles.modalConfirmText}>Confirm</Text>
-              </TouchableOpacity>
+              </AnimatedPressable>
             </View>
           </View>
         </View>
@@ -1040,7 +1202,7 @@ const CreateScreen: React.FC<CreateScreenProps> = ({
           <View style={styles.dropdownContent}>
             <Text style={styles.modalTitle}>Select Shift</Text>
             {shiftOptions.map((option) => (
-              <TouchableOpacity
+              <AnimatedPressable
                 key={option}
                 style={[styles.dropdownOption, schoolForm.shift === option && styles.selectedDropdownOption]}
                 onPress={() => handleShiftSelect(option)}
@@ -1049,9 +1211,9 @@ const CreateScreen: React.FC<CreateScreenProps> = ({
                   {option}
                 </Text>
                 {schoolForm.shift === option && (
-                  <Ionicons name="checkmark" size={20} color="#000" />
+                  <Ionicons name="checkmark" size={20} color={colors.textPrimary} />
                 )}
-              </TouchableOpacity>
+              </AnimatedPressable>
             ))}
           </View>
         </View>
@@ -1068,7 +1230,7 @@ const CreateScreen: React.FC<CreateScreenProps> = ({
           <View style={styles.dropdownContent}>
             <Text style={styles.modalTitle}>Select School</Text>
             {availableSchools.map((school) => (
-              <TouchableOpacity
+              <AnimatedPressable
                 key={school.id}
                 style={[styles.dropdownOption, studentForm.schoolId === school.id && styles.selectedDropdownOption]}
                 onPress={() => handleSchoolSelect(school)}
@@ -1082,9 +1244,9 @@ const CreateScreen: React.FC<CreateScreenProps> = ({
                   </Text>
                 </View>
                 {studentForm.schoolId === school.id && (
-                  <Ionicons name="checkmark" size={20} color="#000" />
+                  <Ionicons name="checkmark" size={20} color={colors.textPrimary} />
                 )}
-              </TouchableOpacity>
+              </AnimatedPressable>
             ))}
           </View>
         </View>
@@ -1101,7 +1263,7 @@ const CreateScreen: React.FC<CreateScreenProps> = ({
           <View style={styles.dropdownContent}>
             <Text style={styles.modalTitle}>Select Payment Mode</Text>
             {paymentModeOptions.map((mode) => (
-              <TouchableOpacity
+              <AnimatedPressable
                 key={mode}
                 style={[styles.dropdownOption, studentForm.paymentMode === mode && styles.selectedDropdownOption]}
                 onPress={() => handlePaymentModeSelect(mode)}
@@ -1110,9 +1272,9 @@ const CreateScreen: React.FC<CreateScreenProps> = ({
                   {mode}
                 </Text>
                 {studentForm.paymentMode === mode && (
-                  <Ionicons name="checkmark" size={20} color="#000" />
+                  <Ionicons name="checkmark" size={20} color={colors.textPrimary} />
                 )}
-              </TouchableOpacity>
+              </AnimatedPressable>
             ))}
           </View>
         </View>
@@ -1129,7 +1291,7 @@ const CreateScreen: React.FC<CreateScreenProps> = ({
           <View style={styles.dropdownContent}>
             <Text style={styles.modalTitle}>Select Payment Period</Text>
             {paymentPeriodOptions.map((period) => (
-              <TouchableOpacity
+              <AnimatedPressable
                 key={period}
                 style={[styles.dropdownOption, studentForm.paymentPeriod === period && styles.selectedDropdownOption]}
                 onPress={() => handlePaymentPeriodSelect(period)}
@@ -1138,9 +1300,9 @@ const CreateScreen: React.FC<CreateScreenProps> = ({
                   {period}
                 </Text>
                 {studentForm.paymentPeriod === period && (
-                  <Ionicons name="checkmark" size={20} color="#000" />
+                  <Ionicons name="checkmark" size={20} color={colors.textPrimary} />
                 )}
-              </TouchableOpacity>
+              </AnimatedPressable>
             ))}
           </View>
         </View>
@@ -1155,10 +1317,10 @@ const CreateScreen: React.FC<CreateScreenProps> = ({
   );
 };
 
-const styles = StyleSheet.create({
+const createStyles = (colors: ThemeColors) => StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f8f9fa',
+    backgroundColor: colors.bg,
   },
   header: {
     flexDirection: 'row',
@@ -1167,9 +1329,9 @@ const styles = StyleSheet.create({
     paddingTop: 50,
     paddingBottom: 20,
     paddingHorizontal: 20,
-    backgroundColor: '#fff',
+    backgroundColor: colors.surface,
     borderBottomWidth: 1,
-    borderBottomColor: '#f0f0f0',
+    borderBottomColor: colors.border,
   },
   backButton: {
     padding: 8,
@@ -1177,7 +1339,7 @@ const styles = StyleSheet.create({
   headerTitle: {
     fontSize: 20,
     fontWeight: 'bold',
-    color: '#000',
+    color: colors.textPrimary,
   },
   placeholder: {
     width: 40,
@@ -1192,16 +1354,16 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 28,
     fontWeight: 'bold',
-    color: '#2c3e50',
+    color: colors.textPrimary,
     marginBottom: 8,
   },
   subtitle: {
     fontSize: 16,
-    color: '#7f8c8d',
+    color: colors.textSecondary,
     marginBottom: 30,
   },
   optionCard: {
-    backgroundColor: '#fff',
+    backgroundColor: colors.surface,
     borderRadius: 16,
     padding: 20,
     marginBottom: 16,
@@ -1212,7 +1374,7 @@ const styles = StyleSheet.create({
     elevation: 3,
   },
   disabledCard: {
-    backgroundColor: '#f8f9fa',
+    backgroundColor: colors.surfaceAlt,
     opacity: 0.7,
   },
   cardHeader: {
@@ -1233,29 +1395,29 @@ const styles = StyleSheet.create({
   cardTitle: {
     fontSize: 18,
     fontWeight: '600',
-    color: '#2c3e50',
+    color: colors.textPrimary,
     marginBottom: 4,
   },
   cardDescription: {
     fontSize: 14,
-    color: '#7f8c8d',
+    color: colors.textSecondary,
     lineHeight: 20,
   },
   disabledText: {
-    color: '#bdc3c7',
+    color: colors.textTertiary,
   },
   lockContainer: {
     width: 32,
     height: 32,
     borderRadius: 16,
-    backgroundColor: '#FFEBEE',
+    backgroundColor: colors.dangerSoft,
     alignItems: 'center',
     justifyContent: 'center',
   },
   warningBanner: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#FFF3E0',
+    backgroundColor: colors.warningSoft,
     paddingHorizontal: 12,
     paddingVertical: 8,
     borderRadius: 8,
@@ -1263,12 +1425,12 @@ const styles = StyleSheet.create({
   },
   warningText: {
     fontSize: 12,
-    color: '#E74C3C',
+    color: colors.danger,
     marginLeft: 6,
     fontWeight: '500',
   },
   statusContainer: {
-    backgroundColor: '#fff',
+    backgroundColor: colors.surface,
     borderRadius: 12,
     padding: 16,
     marginTop: 24,
@@ -1281,12 +1443,12 @@ const styles = StyleSheet.create({
   statusTitle: {
     fontSize: 16,
     fontWeight: '600',
-    color: '#2c3e50',
+    color: colors.textPrimary,
     marginLeft: 8,
   },
   statusDescription: {
     fontSize: 14,
-    color: '#7f8c8d',
+    color: colors.textSecondary,
     lineHeight: 20,
   },
   loadingContainer: {
@@ -1295,11 +1457,41 @@ const styles = StyleSheet.create({
   },
   loadingText: {
     fontSize: 14,
-    color: '#7f8c8d',
+    color: colors.textSecondary,
+  },
+  // New vs Existing Student toggle
+  modeToggleRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginBottom: 16,
+  },
+  modeToggle: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 12,
+    alignItems: 'center',
+    backgroundColor: colors.surfaceAlt,
+  },
+  modeToggleActive: {
+    backgroundColor: colors.primary,
+  },
+  modeToggleText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: colors.textSecondary,
+  },
+  modeToggleTextActive: {
+    color: colors.onPrimary,
+  },
+  helperText: {
+    fontSize: 13,
+    color: colors.textSecondary,
+    lineHeight: 18,
+    marginTop: 8,
   },
   // Form Styles
   formContainer: {
-    backgroundColor: '#fff',
+    backgroundColor: colors.surface,
     borderRadius: 16,
     padding: 20,
     shadowColor: '#000',
@@ -1314,17 +1506,17 @@ const styles = StyleSheet.create({
   inputLabel: {
     fontSize: 16,
     fontWeight: '600',
-    color: '#2c3e50',
+    color: colors.textPrimary,
     marginBottom: 8,
   },
   textInput: {
     borderWidth: 1,
-    borderColor: '#e1e8ed',
+    borderColor: colors.border,
     borderRadius: 12,
     padding: 16,
     fontSize: 16,
-    color: '#2c3e50',
-    backgroundColor: '#fff',
+    color: colors.textPrimary,
+    backgroundColor: colors.surface,
   },
   inputWithButtonContainer: {
     flexDirection: 'row',
@@ -1335,7 +1527,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   importButton: {
-    backgroundColor: '#000',
+    backgroundColor: colors.primary,
     borderRadius: 12,
     padding: 14,
     justifyContent: 'center',
@@ -1352,21 +1544,21 @@ const styles = StyleSheet.create({
   },
   cancelButton: {
     flex: 1,
-    backgroundColor: '#f8f9fa',
+    backgroundColor: colors.surfaceAlt,
     borderRadius: 12,
     paddingVertical: 16,
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: '#e1e8ed',
+    borderColor: colors.border,
   },
   cancelButtonText: {
     fontSize: 16,
     fontWeight: '600',
-    color: '#7f8c8d',
+    color: colors.textSecondary,
   },
   submitButton: {
     flex: 1,
-    backgroundColor: '#000',
+    backgroundColor: colors.primary,
     borderRadius: 12,
     paddingVertical: 16,
     alignItems: 'center',
@@ -1374,31 +1566,31 @@ const styles = StyleSheet.create({
   submitButtonText: {
     fontSize: 16,
     fontWeight: '600',
-    color: '#fff',
+    color: colors.onPrimary,
   },
   disabledButton: {
-    backgroundColor: '#BDC3C7',
+    backgroundColor: colors.textTertiary,
   },
   // Selector Styles
   selectorInput: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    backgroundColor: '#F8F9FA',
+    backgroundColor: colors.surfaceAlt,
     padding: 15,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: '#E9ECEF',
+    borderColor: colors.border,
     marginBottom: 16,
   },
   selectorText: {
     fontSize: 16,
-    color: '#2C3E50',
+    color: colors.textPrimary,
     fontWeight: '500',
   },
   placeholderText: {
     fontSize: 16,
-    color: '#95A5A6',
+    color: colors.textTertiary,
   },
   // Modal Styles
   modalOverlay: {
@@ -1408,7 +1600,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   modalContent: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: colors.surface,
     borderRadius: 16,
     padding: 24,
     width: '90%',
@@ -1422,7 +1614,7 @@ const styles = StyleSheet.create({
   modalTitle: {
     fontSize: 20,
     fontWeight: 'bold',
-    color: '#2C3E50',
+    color: colors.textPrimary,
     textAlign: 'center',
     marginBottom: 20,
   },
@@ -1439,13 +1631,13 @@ const styles = StyleSheet.create({
   timeLabel: {
     fontSize: 16,
     fontWeight: '600',
-    color: '#2C3E50',
+    color: colors.textPrimary,
     textAlign: 'center',
     marginBottom: 12,
   },
   timeScroll: {
     maxHeight: 200,
-    backgroundColor: '#F8F9FA',
+    backgroundColor: colors.surfaceAlt,
     borderRadius: 12,
     padding: 8,
   },
@@ -1456,31 +1648,31 @@ const styles = StyleSheet.create({
     backgroundColor: 'transparent',
   },
   selectedTimeOption: {
-    backgroundColor: '#3498DB',
+    backgroundColor: colors.primary,
   },
   timeOptionText: {
     fontSize: 16,
-    color: '#2C3E50',
+    color: colors.textPrimary,
     textAlign: 'center',
     fontWeight: '500',
   },
   selectedTimeOptionText: {
-    color: '#FFFFFF',
+    color: colors.onPrimary,
     fontWeight: '600',
   },
   // Time Section Headers
   timeSectionHeader: {
-    backgroundColor: '#E8F4FD',
+    backgroundColor: colors.primarySoft,
     padding: 8,
     borderRadius: 6,
     marginVertical: 8,
     borderLeftWidth: 3,
-    borderLeftColor: '#3498DB',
+    borderLeftColor: colors.primary,
   },
   timeSectionHeaderText: {
     fontSize: 14,
     fontWeight: '700',
-    color: '#2980B9',
+    color: colors.primary,
     textAlign: 'center',
     textTransform: 'uppercase',
     letterSpacing: 0.5,
@@ -1493,33 +1685,33 @@ const styles = StyleSheet.create({
   },
   modalCancelButton: {
     flex: 1,
-    backgroundColor: '#95A5A6',
+    backgroundColor: colors.textTertiary,
     padding: 14,
     borderRadius: 12,
     marginRight: 8,
   },
   modalConfirmButton: {
     flex: 1,
-    backgroundColor: '#3498DB',
+    backgroundColor: colors.primary,
     padding: 14,
     borderRadius: 12,
     marginLeft: 8,
   },
   modalCancelText: {
-    color: '#FFFFFF',
+    color: colors.onPrimary,
     fontSize: 16,
     fontWeight: '600',
     textAlign: 'center',
   },
   modalConfirmText: {
-    color: '#FFFFFF',
+    color: colors.onPrimary,
     fontSize: 16,
     fontWeight: '600',
     textAlign: 'center',
   },
   // Dropdown Styles
   dropdownContent: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: colors.surface,
     borderRadius: 16,
     padding: 20,
     width: '80%',
@@ -1537,28 +1729,28 @@ const styles = StyleSheet.create({
     padding: 16,
     borderRadius: 12,
     marginBottom: 8,
-    backgroundColor: '#F8F9FA',
+    backgroundColor: colors.surfaceAlt,
   },
   selectedDropdownOption: {
-    backgroundColor: '#f0f0f0',
+    backgroundColor: colors.primarySoft,
     borderWidth: 1,
-    borderColor: '#000',
+    borderColor: colors.primary,
   },
   dropdownOptionContent: {
     flex: 1,
   },
   dropdownOptionText: {
     fontSize: 16,
-    color: '#2C3E50',
+    color: colors.textPrimary,
     fontWeight: '500',
   },
   dropdownOptionSubText: {
     fontSize: 13,
-    color: '#7F8C8D',
+    color: colors.textSecondary,
     marginTop: 4,
   },
   selectedDropdownOptionText: {
-    color: '#000',
+    color: colors.textPrimary,
     fontWeight: '600',
   },
   // List View Styles
@@ -1573,7 +1765,7 @@ const styles = StyleSheet.create({
   },
   addNewButton: {
     flexDirection: 'row',
-    backgroundColor: '#000',
+    backgroundColor: colors.primary,
     borderRadius: 12,
     padding: 16,
     alignItems: 'center',
@@ -1582,12 +1774,12 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   addNewButtonText: {
-    color: '#fff',
+    color: colors.onPrimary,
     fontSize: 16,
     fontWeight: '600',
   },
   schoolCard: {
-    backgroundColor: '#fff',
+    backgroundColor: colors.surface,
     borderRadius: 16,
     marginBottom: 16,
     overflow: 'hidden',
@@ -1602,9 +1794,9 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     padding: 16,
-    backgroundColor: '#F8F9FA',
+    backgroundColor: colors.surfaceAlt,
     borderBottomWidth: 1,
-    borderBottomColor: '#E1E8ED',
+    borderBottomColor: colors.border,
   },
   schoolInfo: {
     flex: 1,
@@ -1612,12 +1804,12 @@ const styles = StyleSheet.create({
   schoolName: {
     fontSize: 18,
     fontWeight: '700',
-    color: '#2C3E50',
+    color: colors.textPrimary,
     marginBottom: 4,
   },
   schoolShift: {
     fontSize: 14,
-    color: '#000',
+    color: colors.textPrimary,
     fontWeight: '600',
   },
   schoolStats: {
@@ -1626,31 +1818,31 @@ const styles = StyleSheet.create({
   },
   studentCount: {
     fontSize: 14,
-    color: '#7F8C8D',
+    color: colors.textSecondary,
     fontWeight: '500',
   },
   schoolDetails: {
     padding: 16,
-    backgroundColor: '#fff',
+    backgroundColor: colors.surface,
   },
   detailRow: {
     marginBottom: 12,
   },
   detailLabel: {
     fontSize: 13,
-    color: '#7F8C8D',
+    color: colors.textSecondary,
     fontWeight: '600',
     marginBottom: 4,
   },
   detailValue: {
     fontSize: 14,
-    color: '#2C3E50',
+    color: colors.textPrimary,
     fontWeight: '500',
   },
   studentsSection: {
     marginTop: 16,
     borderTopWidth: 1,
-    borderTopColor: '#E1E8ED',
+    borderTopColor: colors.border,
     paddingTop: 16,
   },
   sectionHeader: {
@@ -1662,11 +1854,11 @@ const styles = StyleSheet.create({
   sectionTitle: {
     fontSize: 16,
     fontWeight: '700',
-    color: '#2C3E50',
+    color: colors.textPrimary,
   },
   addStudentBtn: {
     padding: 8,
-    backgroundColor: '#f0f0f0',
+    backgroundColor: colors.border,
     borderRadius: 8,
   },
   studentItem: {
@@ -1675,7 +1867,7 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     paddingHorizontal: 12,
     borderBottomWidth: 1,
-    borderBottomColor: '#F0F0F0',
+    borderBottomColor: colors.border,
     borderRadius: 8,
     marginBottom: 4,
   },
@@ -1683,13 +1875,13 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: '#333',
+    backgroundColor: colors.textPrimary,
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: 12,
   },
   studentAvatarText: {
-    color: '#fff',
+    color: colors.onPrimary,
     fontWeight: '700',
     fontSize: 16,
   },
@@ -1699,22 +1891,22 @@ const styles = StyleSheet.create({
   studentName: {
     fontSize: 14,
     fontWeight: '600',
-    color: '#2C3E50',
+    color: colors.textPrimary,
     marginBottom: 2,
   },
   studentPhone: {
     fontSize: 12,
-    color: '#7F8C8D',
+    color: colors.textSecondary,
   },
   studentPayment: {
-    backgroundColor: '#f0f0f0',
+    backgroundColor: colors.border,
     paddingHorizontal: 12,
     paddingVertical: 4,
     borderRadius: 6,
   },
   paymentMode: {
     fontSize: 12,
-    color: '#000',
+    color: colors.textPrimary,
     fontWeight: '600',
   },
   emptyState: {
@@ -1723,18 +1915,18 @@ const styles = StyleSheet.create({
   },
   emptyStateText: {
     fontSize: 14,
-    color: '#7F8C8D',
+    color: colors.textSecondary,
     marginTop: 12,
     marginBottom: 16,
   },
   emptyStateButton: {
-    backgroundColor: '#000',
+    backgroundColor: colors.primary,
     paddingHorizontal: 16,
     paddingVertical: 8,
     borderRadius: 8,
   },
   emptyStateButtonText: {
-    color: '#fff',
+    color: colors.onPrimary,
     fontSize: 13,
     fontWeight: '600',
   },
@@ -1745,18 +1937,18 @@ const styles = StyleSheet.create({
   },
   emptyListText: {
     fontSize: 16,
-    color: '#7F8C8D',
+    color: colors.textSecondary,
     marginTop: 16,
     marginBottom: 24,
   },
   emptyListButton: {
-    backgroundColor: '#000',
+    backgroundColor: colors.primary,
     paddingHorizontal: 24,
     paddingVertical: 12,
     borderRadius: 8,
   },
   emptyListButtonText: {
-    color: '#fff',
+    color: colors.onPrimary,
     fontSize: 14,
     fontWeight: '600',
   },

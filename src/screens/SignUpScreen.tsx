@@ -3,7 +3,6 @@ import {
   View,
   Text,
   TextInput,
-  TouchableOpacity,
   StyleSheet,
   Alert,
   KeyboardAvoidingView,
@@ -14,8 +13,11 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { StatusBar } from 'expo-status-bar';
-import { tw, combine } from '../utils/tailwind';
+import { tw } from '../utils/tailwind';
 import { authAPI, SignupData } from '../services/api';
+import { ThemeColors, radius, spacing } from '../utils/theme';
+import { useAppTheme, useThemedStyles } from '../context/ThemeContext';
+import { AnimatedPressable, FadeInView } from '../components/ui/Animated';
 
 const { height } = Dimensions.get('window');
 
@@ -25,15 +27,16 @@ interface SignUpScreenProps {
 }
 
 const SignUpScreen: React.FC<SignUpScreenProps> = ({ onNavigateToLogin, onSignUpSuccess }) => {
+  const { colors, isDark } = useAppTheme();
+  const styles = useThemedStyles(createStyles);
   const [name, setName] = useState('');
   const [lastName, setLastName] = useState('');
   const [email, setEmail] = useState('');
   const [mobileNumber, setMobileNumber] = useState('');
 
-  // Handle Android back button - prevent going back from signup screen
   useEffect(() => {
     const backHandler = BackHandler.addEventListener('hardwareBackPress', () => {
-      return true; // Prevent back navigation on signup screen
+      return true;
     });
 
     return () => backHandler.remove();
@@ -60,14 +63,12 @@ const SignUpScreen: React.FC<SignUpScreenProps> = ({ onNavigateToLogin, onSignUp
       return;
     }
 
-    // Validate email format
     const emailRegex = /^\w+([.-]?\w+)*@\w+([.-]?\w+)*(\.\w{2,3})+$/;
     if (!emailRegex.test(email)) {
       Alert.alert('Error', 'Please enter a valid email address');
       return;
     }
 
-    // Validate mobile number format
     const mobileRegex = /^[\+]?[1-9][\d]{0,15}$/;
     if (!mobileRegex.test(mobileNumber)) {
       Alert.alert('Error', 'Please enter a valid mobile number');
@@ -75,7 +76,7 @@ const SignUpScreen: React.FC<SignUpScreenProps> = ({ onNavigateToLogin, onSignUp
     }
 
     setLoading(true);
-    
+
     try {
       const signupData: SignupData = {
         firstName: name.trim(),
@@ -87,30 +88,26 @@ const SignUpScreen: React.FC<SignUpScreenProps> = ({ onNavigateToLogin, onSignUp
       };
 
       const response = await authAPI.signup(signupData);
-      
+
       setLoading(false);
-      
-      // Clear form
       setName('');
       setLastName('');
       setEmail('');
       setMobileNumber('');
       setPassword('');
       setConfirmPassword('');
-      
-      // Navigate to home screen
+
       onSignUpSuccess(response.user);
     } catch (error) {
       setLoading(false);
       console.error('Signup error:', error);
-      
+
       let errorTitle = 'Registration Failed';
       let errorMessage = 'Registration failed. Please try again.';
-      
+
       if (error instanceof Error) {
         errorMessage = error.message;
-        
-        // Check for specific error messages
+
         if (error.message.toLowerCase().includes('user with this email already exists')) {
           errorTitle = 'Email Already Registered';
           errorMessage = 'An account with this email address already exists. Please use a different email or try logging in.';
@@ -125,7 +122,7 @@ const SignUpScreen: React.FC<SignUpScreenProps> = ({ onNavigateToLogin, onSignUp
           errorMessage = 'Please check your information and make sure all fields are filled correctly.';
         }
       }
-      
+
       Alert.alert(errorTitle, errorMessage, [
         {
           text: 'OK',
@@ -135,34 +132,17 @@ const SignUpScreen: React.FC<SignUpScreenProps> = ({ onNavigateToLogin, onSignUp
     }
   };
 
-  const navigateToLogin = () => {
-    onNavigateToLogin();
-  };
-
   return (
     <View style={styles.container}>
-      <StatusBar style="light" />
-      
+      <StatusBar style={isDark ? 'light' : 'dark'} />
+
       {/* Fixed Navigation Header at Top */}
       <View style={styles.fixedHeader}>
-        <View style={combine(
-          tw.flexRow,
-          tw.itemsCenter,
-          tw.justifyBetween,
-          tw.px(20),
-          tw.py(15)
-        )}>
-          <TouchableOpacity 
-            style={tw.p(8)} 
-            onPress={() => onNavigateToLogin()}
-          >
-            <Ionicons name="arrow-back" size={24} color="#fff" />
-          </TouchableOpacity>
-          <Text style={combine(
-            tw.textWhite,
-            tw.fontSemibold,
-            tw.textXl
-          )}>Sign Up</Text>
+        <View style={styles.headerRow}>
+          <AnimatedPressable style={styles.iconButton} onPress={onNavigateToLogin}>
+            <Ionicons name="arrow-back" size={24} color={colors.textPrimary} />
+          </AnimatedPressable>
+          <Text style={styles.headerTitle}>Sign Up</Text>
           <View style={tw.w(40)} />
         </View>
       </View>
@@ -171,31 +151,19 @@ const SignUpScreen: React.FC<SignUpScreenProps> = ({ onNavigateToLogin, onSignUp
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         style={styles.keyboardAvoidingView}
       >
-        <ScrollView 
+        <ScrollView
           contentContainerStyle={styles.scrollContent}
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
         >
-          <View style={styles.formContainer}>
+          <FadeInView style={styles.formContainer}>
             <View style={tw.wFull}>
               <View style={tw.mb(16)}>
-                <Text style={combine(
-                  tw.textGray700,
-                  tw.fontMedium,
-                  tw.textBase,
-                  tw.mb(8)
-                )}>First name</Text>
+                <Text style={styles.label}>First name</Text>
                 <TextInput
-                  style={combine(
-                    tw.bgGray100,
-                    tw.rounded,
-                    tw.px(18),
-                    tw.py(15),
-                    tw.textBase,
-                    tw.textBlack
-                  )}
+                  style={styles.input}
                   placeholder="Prathamesh"
-                  placeholderTextColor="#bbb"
+                  placeholderTextColor={colors.textTertiary}
                   value={name}
                   onChangeText={setName}
                   autoCapitalize="words"
@@ -203,23 +171,11 @@ const SignUpScreen: React.FC<SignUpScreenProps> = ({ onNavigateToLogin, onSignUp
               </View>
 
               <View style={tw.mb(16)}>
-                <Text style={combine(
-                  tw.textGray700,
-                  tw.fontMedium,
-                  tw.textBase,
-                  tw.mb(8)
-                )}>Last name</Text>
+                <Text style={styles.label}>Last name</Text>
                 <TextInput
-                  style={combine(
-                    tw.bgGray100,
-                    tw.rounded,
-                    tw.px(18),
-                    tw.py(15),
-                    tw.textBase,
-                    tw.textBlack
-                  )}
+                  style={styles.input}
                   placeholder="Kale"
-                  placeholderTextColor="#bbb"
+                  placeholderTextColor={colors.textTertiary}
                   value={lastName}
                   onChangeText={setLastName}
                   autoCapitalize="words"
@@ -227,23 +183,11 @@ const SignUpScreen: React.FC<SignUpScreenProps> = ({ onNavigateToLogin, onSignUp
               </View>
 
               <View style={tw.mb(16)}>
-                <Text style={combine(
-                  tw.textGray700,
-                  tw.fontMedium,
-                  tw.textBase,
-                  tw.mb(8)
-                )}>Email</Text>
+                <Text style={styles.label}>Email</Text>
                 <TextInput
-                  style={combine(
-                    tw.bgGray100,
-                    tw.rounded,
-                    tw.px(18),
-                    tw.py(15),
-                    tw.textBase,
-                    tw.textBlack
-                  )}
+                  style={styles.input}
                   placeholder="prath0mkale@gmail.com"
-                  placeholderTextColor="#bbb"
+                  placeholderTextColor={colors.textTertiary}
                   value={email}
                   onChangeText={setEmail}
                   keyboardType="email-address"
@@ -253,23 +197,11 @@ const SignUpScreen: React.FC<SignUpScreenProps> = ({ onNavigateToLogin, onSignUp
               </View>
 
               <View style={tw.mb(16)}>
-                <Text style={combine(
-                  tw.textGray700,
-                  tw.fontMedium,
-                  tw.textBase,
-                  tw.mb(8)
-                )}>Mobile Number</Text>
+                <Text style={styles.label}>Mobile Number</Text>
                 <TextInput
-                  style={combine(
-                    tw.bgGray100,
-                    tw.rounded,
-                    tw.px(18),
-                    tw.py(15),
-                    tw.textBase,
-                    tw.textBlack
-                  )}
+                  style={styles.input}
                   placeholder="+91 9403171172"
-                  placeholderTextColor="#bbb"
+                  placeholderTextColor={colors.textTertiary}
                   value={mobileNumber}
                   onChangeText={setMobileNumber}
                   keyboardType="phone-pad"
@@ -279,150 +211,102 @@ const SignUpScreen: React.FC<SignUpScreenProps> = ({ onNavigateToLogin, onSignUp
               </View>
 
               <View style={tw.mb(16)}>
-                <Text style={combine(
-                  tw.textGray700,
-                  tw.fontMedium,
-                  tw.textBase,
-                  tw.mb(8)
-                )}>Password</Text>
-                <View style={{
-                  position: 'relative',
-                  flexDirection: 'row',
-                  alignItems: 'center'
-                }}>
+                <Text style={styles.label}>Password</Text>
+                <View style={tw.relative}>
                   <TextInput
-                    style={combine(
-                      tw.bgGray100,
-                      tw.rounded,
-                      tw.px(18),
-                      tw.py(15),
-                      tw.textBase,
-                      tw.textBlack,
-                      { 
-                        flex: 1,
-                        paddingRight: 55 
-                      }
-                    )}
+                    style={[styles.input, { paddingRight: 55 }]}
                     placeholder="••••••••"
-                    placeholderTextColor="#bbb"
+                    placeholderTextColor={colors.textTertiary}
                     value={password}
                     onChangeText={setPassword}
                     secureTextEntry={!showPassword}
                   />
-                  <TouchableOpacity
-                    style={combine(
-                      tw.absolute,
-                      { right: 15, top: 15, bottom: 15, justifyContent: 'center' }
-                    )}
+                  <AnimatedPressable
+                    style={styles.eyeButton}
                     onPress={() => setShowPassword(!showPassword)}
                   >
                     <Ionicons
                       name={showPassword ? 'eye-off' : 'eye'}
                       size={20}
-                      color="#666"
+                      color={colors.textSecondary}
                     />
-                  </TouchableOpacity>
+                  </AnimatedPressable>
                 </View>
               </View>
 
               <View style={tw.mb(16)}>
-                <Text style={combine(
-                  tw.textGray700,
-                  tw.fontMedium,
-                  tw.textBase,
-                  tw.mb(8)
-                )}>Confirm password</Text>
-                <View style={{
-                  position: 'relative',
-                  flexDirection: 'row',
-                  alignItems: 'center'
-                }}>
+                <Text style={styles.label}>Confirm password</Text>
+                <View style={tw.relative}>
                   <TextInput
-                    style={combine(
-                      tw.bgGray100,
-                      tw.rounded,
-                      tw.px(18),
-                      tw.py(15),
-                      tw.textBase,
-                      tw.textBlack,
-                      { 
-                        flex: 1,
-                        paddingRight: 55 
-                      }
-                    )}
+                    style={[styles.input, { paddingRight: 55 }]}
                     placeholder="••••••••"
-                    placeholderTextColor="#bbb"
+                    placeholderTextColor={colors.textTertiary}
                     value={confirmPassword}
                     onChangeText={setConfirmPassword}
                     secureTextEntry={!showConfirmPassword}
                   />
-                  <TouchableOpacity
-                    style={combine(
-                      tw.absolute,
-                      { right: 15, top: 15, bottom: 15, justifyContent: 'center' }
-                    )}
+                  <AnimatedPressable
+                    style={styles.eyeButton}
                     onPress={() => setShowConfirmPassword(!showConfirmPassword)}
                   >
                     <Ionicons
                       name={showConfirmPassword ? 'eye-off' : 'eye'}
                       size={20}
-                      color="#666"
+                      color={colors.textSecondary}
                     />
-                  </TouchableOpacity>
+                  </AnimatedPressable>
                 </View>
               </View>
 
-              <TouchableOpacity
-                style={combine(
-                  loading ? tw.bgGray(200) : tw.bgBlack,
-                  tw.rounded,
-                  tw.py(16),
-                  tw.itemsCenter,
-                  tw.mt(20)
-                )}
+              <AnimatedPressable
+                style={[styles.signUpButton, loading && styles.signUpButtonDisabled]}
                 onPress={handleSignUp}
                 disabled={loading}
               >
-                <Text style={combine(
-                  tw.textWhite,
-                  tw.textBase,
-                  tw.fontSemibold
-                )}>
+                <Text style={styles.signUpButtonText}>
                   {loading ? 'Creating Account...' : 'Sign Up'}
                 </Text>
-              </TouchableOpacity>
+              </AnimatedPressable>
             </View>
-          </View>
+          </FadeInView>
         </ScrollView>
 
         {/* Bottom Login Link */}
-        <View style={combine(
-          tw.bgWhite,
-          tw.px(20),
-          tw.py(20),
-          tw.flexRow,
-          tw.justifyCenter,
-          styles.bottomContainer
-        )}>
-          <Text style={combine(tw.textSm, tw.textGray600)}>Already have any account? </Text>
-          <TouchableOpacity onPress={onNavigateToLogin}>
-            <Text style={combine(tw.textSm, tw.textBlack, tw.fontSemibold)}>Sign In</Text>
-          </TouchableOpacity>
+        <View style={styles.bottomContainer}>
+          <Text style={styles.bottomText}>Already have any account? </Text>
+          <AnimatedPressable onPress={onNavigateToLogin}>
+            <Text style={styles.bottomLink}>Sign In</Text>
+          </AnimatedPressable>
         </View>
       </KeyboardAvoidingView>
     </View>
   );
 };
 
-const styles = StyleSheet.create({
+const createStyles = (colors: ThemeColors) => StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#000',
+    backgroundColor: colors.bg,
   },
   fixedHeader: {
-    backgroundColor: '#000',
+    backgroundColor: colors.bg,
     paddingTop: Platform.OS === 'ios' ? 50 : 25,
     zIndex: 10,
+  },
+  headerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: spacing(5),
+    paddingVertical: spacing(3),
+  },
+  iconButton: {
+    padding: spacing(2),
+  },
+  headerTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: colors.textPrimary,
   },
   keyboardAvoidingView: {
     flex: 1,
@@ -430,30 +314,67 @@ const styles = StyleSheet.create({
   scrollContent: {
     flexGrow: 1,
   },
-  content: {
-    flex: 1,
-  },
-  header: {
-    flex: 0.2,
-    backgroundColor: '#000',
-    overflow: 'hidden',
-    paddingTop: 50,
-  },
   formContainer: {
     flex: 1,
-    backgroundColor: '#fff',
-    borderTopLeftRadius: 25,
-    borderTopRightRadius: 25,
-    paddingHorizontal: 35,
-    paddingTop: 35,
+    backgroundColor: colors.surface,
+    borderTopLeftRadius: radius.lg,
+    borderTopRightRadius: radius.lg,
+    paddingHorizontal: spacing(9),
+    paddingTop: spacing(9),
+  },
+  label: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: colors.textSecondary,
+    marginBottom: spacing(2),
+  },
+  input: {
+    backgroundColor: colors.surfaceAlt,
+    borderRadius: radius.sm,
+    paddingHorizontal: spacing(4.5),
+    paddingVertical: spacing(4),
+    fontSize: 16,
+    color: colors.textPrimary,
+  },
+  eyeButton: {
+    position: 'absolute',
+    right: 15,
+    top: 15,
+    bottom: 15,
+    justifyContent: 'center',
+  },
+  signUpButton: {
+    borderRadius: radius.sm,
+    paddingVertical: spacing(4),
+    alignItems: 'center',
+    marginTop: spacing(5),
+    backgroundColor: colors.primary,
+  },
+  signUpButtonDisabled: {
+    opacity: 0.5,
+  },
+  signUpButtonText: {
+    color: colors.onPrimary,
+    fontSize: 16,
+    fontWeight: '600',
   },
   bottomContainer: {
+    backgroundColor: colors.surface,
+    paddingHorizontal: spacing(5),
+    paddingVertical: spacing(5),
+    flexDirection: 'row',
+    justifyContent: 'center',
     borderTopWidth: 1,
-    borderTopColor: '#f0f0f0',
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
+    borderTopColor: colors.border,
+  },
+  bottomText: {
+    fontSize: 14,
+    color: colors.textSecondary,
+  },
+  bottomLink: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: colors.primary,
   },
 });
 

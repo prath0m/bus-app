@@ -3,7 +3,6 @@ import {
   View,
   Text,
   TextInput,
-  TouchableOpacity,
   StyleSheet,
   ScrollView,
   Alert,
@@ -11,9 +10,11 @@ import {
   BackHandler,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { tw, combine } from '../utils/tailwind';
 import { userAPI, User } from '../services/api';
 import BottomNavigation, { TabName } from '../components/BottomNavigation';
+import { AnimatedPressable, FadeInView } from '../components/ui/Animated';
+import { ThemeColors, radius, spacing } from '../utils/theme';
+import { useAppTheme, useThemedStyles } from '../context/ThemeContext';
 
 interface ProfileScreenProps {
   user: User;
@@ -26,21 +27,22 @@ interface ProfileScreenProps {
   onNavigateToRoutes?: () => void;
 }
 
-const ProfileScreen: React.FC<ProfileScreenProps> = ({ 
-  user, 
-  onBack, 
-  onUserUpdate, 
+const ProfileScreen: React.FC<ProfileScreenProps> = ({
+  user,
+  onBack,
+  onUserUpdate,
   onLogout,
   onNavigateToHome,
   onNavigateToPayment,
   onNavigateToCreate,
   onNavigateToRoutes
 }) => {
+  const { colors } = useAppTheme();
+  const styles = useThemedStyles(createStyles);
   const [isEditing, setIsEditing] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const activeTab: TabName = 'profile';
 
-  // Handle Android back button
   useEffect(() => {
     const backHandler = BackHandler.addEventListener('hardwareBackPress', () => {
       onBack();
@@ -65,7 +67,6 @@ const ProfileScreen: React.FC<ProfileScreenProps> = ({
         onNavigateToRoutes?.();
         break;
       case 'profile':
-        console.log('Already on Profile');
         break;
       default:
         break;
@@ -86,7 +87,7 @@ const ProfileScreen: React.FC<ProfileScreenProps> = ({
   };
 
   const handleSave = async () => {
-    if (!formData.firstName.trim() || !formData.lastName.trim() || 
+    if (!formData.firstName.trim() || !formData.lastName.trim() ||
         !formData.email.trim() || !formData.mobileNumber.trim()) {
       Alert.alert('Error', 'Please fill in all fields');
       return;
@@ -132,77 +133,45 @@ const ProfileScreen: React.FC<ProfileScreenProps> = ({
     <View style={styles.container}>
       {/* Header */}
       <View style={styles.header}>
-        <View style={combine(
-          tw.flexRow,
-          tw.itemsCenter,
-          tw.justifyBetween,
-          tw.px(20),
-          tw.py(5)
-        )}>
-          <TouchableOpacity 
-            style={tw.p(8)} 
-            onPress={onBack}
-          >
-            <Ionicons name="arrow-back" size={24} color="#000" />
-          </TouchableOpacity>
-          
-          <Text style={combine(
-            tw.textBlack,
-            tw.fontBold,
-            tw.textXl
-          )}>Profile</Text>
-          
-          <TouchableOpacity 
-            style={tw.p(8)} 
-            onPress={() => setIsEditing(!isEditing)}
-          >
-            <Ionicons 
-              name={isEditing ? "close" : "pencil"} 
-              size={24} 
-              color="#000" 
+        <View style={styles.headerRow}>
+          <AnimatedPressable style={styles.iconButton} onPress={onBack}>
+            <Ionicons name="arrow-back" size={24} color={colors.textPrimary} />
+          </AnimatedPressable>
+
+          <Text style={styles.headerTitle}>Profile</Text>
+
+          <AnimatedPressable style={styles.iconButton} onPress={() => setIsEditing(!isEditing)}>
+            <Ionicons
+              name={isEditing ? 'close' : 'pencil'}
+              size={24}
+              color={colors.textPrimary}
             />
-          </TouchableOpacity>
+          </AnimatedPressable>
         </View>
       </View>
 
       {/* Main Content */}
-      <ScrollView 
+      <ScrollView
         style={styles.content}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
         {/* Profile Avatar */}
-        <View style={styles.avatarSection}>
+        <FadeInView style={styles.avatarSection}>
           <View style={styles.avatarContainer}>
-            <Ionicons name="person" size={60} color="#666" />
+            <Ionicons name="person" size={60} color={colors.primary} />
           </View>
-          <Text style={combine(
-            tw.textBlack,
-            tw.fontBold,
-            tw.textXl,
-            tw.mt(16),
-            { textAlign: 'center' }
-          )}>
+          <Text style={styles.userName}>
             {user.firstName} {user.lastName}
           </Text>
-          <Text style={combine(
-            tw.textGray600,
-            tw.textBase,
-            tw.mt(4),
-            { textAlign: 'center' }
-          )}>
+          <Text style={styles.userRole}>
             {user.role}
           </Text>
-        </View>
+        </FadeInView>
 
         {/* Profile Information */}
         <View style={styles.infoSection}>
-          <Text style={combine(
-            tw.textBlack,
-            tw.fontBold,
-            tw.textLg,
-            tw.mb(20)
-          )}>Personal Information</Text>
+          <Text style={styles.sectionTitle}>Personal Information</Text>
 
           {/* First Name */}
           <View style={styles.inputGroup}>
@@ -213,6 +182,7 @@ const ProfileScreen: React.FC<ProfileScreenProps> = ({
                 value={formData.firstName}
                 onChangeText={(value) => handleInputChange('firstName', value)}
                 placeholder="Enter first name"
+                placeholderTextColor={colors.textTertiary}
                 editable={!isLoading}
               />
             ) : (
@@ -229,6 +199,7 @@ const ProfileScreen: React.FC<ProfileScreenProps> = ({
                 value={formData.lastName}
                 onChangeText={(value) => handleInputChange('lastName', value)}
                 placeholder="Enter last name"
+                placeholderTextColor={colors.textTertiary}
                 editable={!isLoading}
               />
             ) : (
@@ -245,6 +216,7 @@ const ProfileScreen: React.FC<ProfileScreenProps> = ({
                 value={formData.email}
                 onChangeText={(value) => handleInputChange('email', value)}
                 placeholder="Enter email"
+                placeholderTextColor={colors.textTertiary}
                 keyboardType="email-address"
                 autoCapitalize="none"
                 editable={!isLoading}
@@ -263,6 +235,7 @@ const ProfileScreen: React.FC<ProfileScreenProps> = ({
                 value={formData.mobileNumber}
                 onChangeText={(value) => handleInputChange('mobileNumber', value)}
                 placeholder="Enter mobile number"
+                placeholderTextColor={colors.textTertiary}
                 keyboardType="numeric"
                 maxLength={10}
                 editable={!isLoading}
@@ -275,45 +248,45 @@ const ProfileScreen: React.FC<ProfileScreenProps> = ({
           {/* Save/Cancel Buttons */}
           {isEditing && (
             <View style={styles.buttonContainer}>
-              <TouchableOpacity 
-                style={[styles.button, styles.cancelButton]} 
+              <AnimatedPressable
+                style={[styles.button, styles.cancelButton]}
                 onPress={handleCancel}
                 disabled={isLoading}
               >
                 <Text style={styles.cancelButtonText}>Cancel</Text>
-              </TouchableOpacity>
-              
-              <TouchableOpacity 
-                style={[styles.button, styles.saveButton]} 
+              </AnimatedPressable>
+
+              <AnimatedPressable
+                style={[styles.button, styles.saveButton]}
                 onPress={handleSave}
                 disabled={isLoading}
               >
                 {isLoading ? (
-                  <ActivityIndicator color="#fff" size="small" />
+                  <ActivityIndicator color={colors.onPrimary} size="small" />
                 ) : (
                   <Text style={styles.saveButtonText}>Save Changes</Text>
                 )}
-              </TouchableOpacity>
+              </AnimatedPressable>
             </View>
           )}
 
           {/* Logout Button */}
           {!isEditing && (
             <View style={styles.logoutSection}>
-              <TouchableOpacity 
+              <AnimatedPressable
                 style={styles.logoutButton}
                 onPress={onLogout}
               >
-                <Ionicons name="log-out-outline" size={20} color="#ff4444" />
+                <Ionicons name="log-out-outline" size={20} color={colors.danger} />
                 <Text style={styles.logoutButtonText}>Logout</Text>
-              </TouchableOpacity>
+              </AnimatedPressable>
             </View>
           )}
         </View>
       </ScrollView>
-      
+
       {/* Bottom Navigation */}
-      <BottomNavigation 
+      <BottomNavigation
         activeTab={activeTab}
         onTabPress={handleTabPress}
       />
@@ -321,114 +294,148 @@ const ProfileScreen: React.FC<ProfileScreenProps> = ({
   );
 };
 
-const styles = StyleSheet.create({
+const createStyles = (colors: ThemeColors) => StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#fff',
+    backgroundColor: colors.bg,
   },
   header: {
-    backgroundColor: '#fff',
+    backgroundColor: colors.bg,
     paddingTop: 40,
     paddingBottom: 10,
+  },
+  headerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: spacing(5),
+    paddingVertical: spacing(1),
+  },
+  iconButton: {
+    padding: spacing(2),
+  },
+  headerTitle: {
+    fontSize: 20,
+    fontWeight: '800',
+    color: colors.textPrimary,
   },
   content: {
     flex: 1,
   },
   scrollContent: {
-    padding: 20,
+    padding: spacing(5),
+    paddingBottom: 120,
   },
   avatarSection: {
     alignItems: 'center',
-    marginBottom: 32,
+    marginBottom: spacing(8),
   },
   avatarContainer: {
     width: 120,
     height: 120,
     borderRadius: 60,
-    backgroundColor: '#f0f0f0',
+    backgroundColor: colors.primarySoft,
     justifyContent: 'center',
     alignItems: 'center',
-    marginTop: 20,
+    marginTop: spacing(5),
+  },
+  userName: {
+    fontSize: 20,
+    fontWeight: '800',
+    color: colors.textPrimary,
+    marginTop: spacing(4),
+    textAlign: 'center',
+  },
+  userRole: {
+    fontSize: 14,
+    color: colors.textSecondary,
+    marginTop: 4,
+    textAlign: 'center',
+    textTransform: 'capitalize',
   },
   infoSection: {
     flex: 1,
   },
+  sectionTitle: {
+    fontSize: 17,
+    fontWeight: '800',
+    color: colors.textPrimary,
+    marginBottom: spacing(5),
+  },
   inputGroup: {
-    marginBottom: 20,
+    marginBottom: spacing(5),
   },
   label: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#333',
-    marginBottom: 8,
+    fontSize: 13,
+    fontWeight: '700',
+    color: colors.textSecondary,
+    marginBottom: spacing(2),
   },
   input: {
     borderWidth: 1,
-    borderColor: '#ddd',
-    borderRadius: 8,
-    padding: 12,
-    fontSize: 16,
-    backgroundColor: '#fff',
+    borderColor: colors.border,
+    borderRadius: radius.sm,
+    padding: spacing(3),
+    fontSize: 15,
+    color: colors.textPrimary,
+    backgroundColor: colors.surface,
   },
   value: {
-    fontSize: 16,
-    color: '#333',
-    padding: 12,
-    backgroundColor: '#f9f9f9',
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#f0f0f0',
+    fontSize: 15,
+    color: colors.textPrimary,
+    fontWeight: '500',
+    padding: spacing(3),
+    backgroundColor: colors.surfaceAlt,
+    borderRadius: radius.sm,
   },
   buttonContainer: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginTop: 24,
-    gap: 12,
+    marginTop: spacing(6),
+    gap: spacing(3),
   },
   button: {
     flex: 1,
-    paddingVertical: 14,
-    borderRadius: 8,
+    paddingVertical: spacing(3.5),
+    borderRadius: radius.pill,
     alignItems: 'center',
     justifyContent: 'center',
   },
   saveButton: {
-    backgroundColor: '#000',
+    backgroundColor: colors.primary,
   },
   saveButtonText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '600',
+    color: colors.onPrimary,
+    fontSize: 15,
+    fontWeight: '700',
   },
   cancelButton: {
-    backgroundColor: '#f0f0f0',
-    borderWidth: 1,
-    borderColor: '#ddd',
+    backgroundColor: colors.surfaceAlt,
   },
   cancelButtonText: {
-    color: '#666',
-    fontSize: 16,
-    fontWeight: '600',
+    color: colors.textSecondary,
+    fontSize: 15,
+    fontWeight: '700',
   },
   logoutSection: {
-    marginTop: 32,
+    marginTop: spacing(8),
     alignItems: 'center',
   },
   logoutButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 12,
-    paddingHorizontal: 20,
-    borderRadius: 8,
+    paddingVertical: spacing(3),
+    paddingHorizontal: spacing(5),
+    borderRadius: radius.pill,
     borderWidth: 1,
-    borderColor: '#ff4444',
+    borderColor: colors.danger,
     backgroundColor: 'transparent',
   },
   logoutButtonText: {
-    color: '#ff4444',
-    fontSize: 16,
-    fontWeight: '600',
-    marginLeft: 8,
+    color: colors.danger,
+    fontSize: 15,
+    fontWeight: '700',
+    marginLeft: spacing(2),
   },
 });
 

@@ -1,6 +1,9 @@
-import React from 'react';
-import { View, TouchableOpacity, StyleSheet } from 'react-native';
+import React, { useEffect } from 'react';
+import { View, Text, StyleSheet, LayoutAnimation, Platform, UIManager } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { ThemeColors, radius, spacing, shadow } from '../utils/theme';
+import { useAppTheme, useThemedStyles } from '../context/ThemeContext';
+import { AnimatedPressable } from './ui/Animated';
 
 export type TabName = 'home' | 'payment' | 'create' | 'routes' | 'profile';
 
@@ -9,111 +12,79 @@ interface BottomNavigationProps {
   onTabPress: (tab: TabName) => void;
 }
 
-const BottomNavigation: React.FC<BottomNavigationProps> = ({ activeTab, onTabPress }) => {
-  const getIconColor = (tabName: TabName) => {
-    return activeTab === tabName ? '#fff' : '#95a5a6';
-  };
+const TABS: { name: TabName; label: string; icon: keyof typeof Ionicons.glyphMap }[] = [
+  { name: 'home', label: 'Home', icon: 'home' },
+  { name: 'payment', label: 'Payments', icon: 'card' },
+  { name: 'create', label: 'Add', icon: 'add-circle' },
+  { name: 'routes', label: 'Students', icon: 'people' },
+  { name: 'profile', label: 'Profile', icon: 'person' },
+];
 
-  const getIconName = (tabName: TabName): keyof typeof Ionicons.glyphMap => {
-    const iconMap: Record<TabName, keyof typeof Ionicons.glyphMap> = {
-      home: 'home',
-      payment: 'card',
-      create: 'add',
-      routes: 'bus',
-      profile: 'person'
-    };
-    return iconMap[tabName];
-  };
+if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
+  UIManager.setLayoutAnimationEnabledExperimental(true);
+}
+
+const BottomNavigation: React.FC<BottomNavigationProps> = ({ activeTab, onTabPress }) => {
+  const { colors } = useAppTheme();
+  const styles = useThemedStyles(createStyles);
+
+  useEffect(() => {
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.spring);
+  }, [activeTab]);
 
   return (
     <View style={styles.bottomNavBar}>
-      <TouchableOpacity
-        style={[styles.navItem, activeTab === 'home' && styles.activeNavItem]}
-        onPress={() => onTabPress('home')}
-      >
-        <Ionicons 
-          name={getIconName('home')} 
-          size={22} 
-          color={getIconColor('home')}
-        />
-      </TouchableOpacity>
-
-      <TouchableOpacity
-        style={[styles.navItem, activeTab === 'payment' && styles.activeNavItem]}
-        onPress={() => onTabPress('payment')}
-      >
-        <Ionicons 
-          name={getIconName('payment')} 
-          size={22} 
-          color={getIconColor('payment')}
-        />
-      </TouchableOpacity>
-
-      <TouchableOpacity
-        style={[styles.navItem, activeTab === 'create' && styles.activeNavItem]}
-        onPress={() => onTabPress('create')}
-      >
-        <Ionicons 
-          name={getIconName('create')} 
-          size={22} 
-          color={getIconColor('create')}
-        />
-      </TouchableOpacity>
-
-      <TouchableOpacity
-        style={[styles.navItem, activeTab === 'routes' && styles.activeNavItem]}
-        onPress={() => onTabPress('routes')}
-      >
-        <Ionicons 
-          name={getIconName('routes')} 
-          size={22} 
-          color={getIconColor('routes')}
-        />
-      </TouchableOpacity>
-
-      <TouchableOpacity
-        style={[styles.navItem, activeTab === 'profile' && styles.activeNavItem]}
-        onPress={() => onTabPress('profile')}
-      >
-        <Ionicons 
-          name={getIconName('profile')} 
-          size={22} 
-          color={getIconColor('profile')}
-        />
-      </TouchableOpacity>
+      {TABS.map((tab) => {
+        const isActive = activeTab === tab.name;
+        return (
+          <AnimatedPressable
+            key={tab.name}
+            onPress={() => onTabPress(tab.name)}
+            style={[styles.navItem, isActive && styles.activeNavItem]}
+          >
+            <Ionicons
+              name={tab.icon}
+              size={20}
+              color={isActive ? colors.onPrimary : colors.textTertiary}
+            />
+            {isActive && <Text style={styles.activeLabel}>{tab.label}</Text>}
+          </AnimatedPressable>
+        );
+      })}
     </View>
   );
 };
 
-const styles = StyleSheet.create({
+const createStyles = (colors: ThemeColors) => StyleSheet.create({
   bottomNavBar: {
     position: 'absolute',
     bottom: 15,
-    left: 40,
-    right: 40,
-    backgroundColor: '#1a1a1a',
+    left: 16,
+    right: 16,
+    backgroundColor: colors.surface,
     flexDirection: 'row',
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    borderRadius: 18,
-    shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-    shadowOpacity: 0.2,
-    shadowRadius: 4,
-    elevation: 4,
+    paddingVertical: spacing(2),
+    paddingHorizontal: spacing(2),
+    borderRadius: radius.pill,
+    ...shadow.soft,
   },
   navItem: {
     flex: 1,
+    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 6,
-    borderRadius: 12,
+    paddingVertical: spacing(2.5),
+    borderRadius: radius.pill,
   },
   activeNavItem: {
-    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    backgroundColor: colors.primary,
+    flex: 1.6,
+  },
+  activeLabel: {
+    color: colors.onPrimary,
+    fontSize: 12,
+    fontWeight: '700',
+    marginLeft: spacing(1.5),
   },
 });
 

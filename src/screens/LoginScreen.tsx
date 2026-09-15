@@ -3,7 +3,6 @@ import {
   View,
   Text,
   TextInput,
-  TouchableOpacity,
   StyleSheet,
   Alert,
   KeyboardAvoidingView,
@@ -16,6 +15,9 @@ import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
 import { tw, combine } from '../utils/tailwind';
 import { authAPI, LoginData } from '../services/api';
+import { ThemeColors, radius, spacing, shadow } from '../utils/theme';
+import { useAppTheme, useThemedStyles } from '../context/ThemeContext';
+import { AnimatedPressable, FadeInView } from '../components/ui/Animated';
 
 const { height } = Dimensions.get('window');
 
@@ -25,6 +27,8 @@ interface LoginScreenProps {
 }
 
 const LoginScreen: React.FC<LoginScreenProps> = ({ onNavigateToSignUp, onLoginSuccess }) => {
+  const { colors, isDark } = useAppTheme();
+  const styles = useThemedStyles(createStyles);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
@@ -33,16 +37,7 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onNavigateToSignUp, onLoginSu
   // Handle Android back button - prevent going back from login screen
   useEffect(() => {
     const backHandler = BackHandler.addEventListener('hardwareBackPress', () => {
-      return true; // Prevent back navigation on login screen
-    });
-
-    return () => backHandler.remove();
-  }, []);
-
-  // Handle Android back button - prevent going back from login screen
-  useEffect(() => {
-    const backHandler = BackHandler.addEventListener('hardwareBackPress', () => {
-      return true; // Prevent back navigation on login screen
+      return true;
     });
 
     return () => backHandler.remove();
@@ -54,7 +49,6 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onNavigateToSignUp, onLoginSu
       return;
     }
 
-    // Validate email format
     const emailRegex = /^\w+([.-]?\w+)*@\w+([.-]?\w+)*(\.\w{2,3})+$/;
     if (!emailRegex.test(email)) {
       Alert.alert('Error', 'Please enter a valid email address');
@@ -62,7 +56,7 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onNavigateToSignUp, onLoginSu
     }
 
     setLoading(true);
-    
+
     try {
       const loginData: LoginData = {
         email: email.trim().toLowerCase(),
@@ -70,26 +64,21 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onNavigateToSignUp, onLoginSu
       };
 
       const response = await authAPI.login(loginData);
-      
+
       setLoading(false);
-      
-      // Clear form
       setEmail('');
       setPassword('');
-      
-      // Navigate to home screen
       onLoginSuccess(response.user);
     } catch (error) {
       setLoading(false);
       console.error('Login error:', error);
-      
+
       let errorTitle = 'Login Failed';
       let errorMessage = 'Login failed. Please try again.';
-      
+
       if (error instanceof Error) {
         errorMessage = error.message;
-        
-        // Check for specific error messages
+
         if (error.message.toLowerCase().includes('invalid email or password')) {
           errorTitle = 'Incorrect Credentials';
           errorMessage = 'The email or password you entered is incorrect. Please check your credentials and try again.';
@@ -101,7 +90,7 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onNavigateToSignUp, onLoginSu
           errorMessage = 'Your account has been deactivated. Please contact support for assistance.';
         }
       }
-      
+
       Alert.alert(errorTitle, errorMessage, [
         {
           text: 'OK',
@@ -111,13 +100,9 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onNavigateToSignUp, onLoginSu
     }
   };
 
-  const navigateToSignUp = () => {
-    onNavigateToSignUp();
-  };
-
   return (
     <View style={styles.container}>
-      <StatusBar style="light" />
+      <StatusBar style={isDark ? 'light' : 'dark'} />
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         style={styles.keyboardAvoidingView}
@@ -128,51 +113,23 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onNavigateToSignUp, onLoginSu
           keyboardShouldPersistTaps="handled"
         >
           <View style={combine(tw.relative, styles.header)}>
-            <View style={combine(tw.itemsCenter, { zIndex: 2 })}>
-              <View style={combine(
-                tw.bgWhite,
-                tw.shadowLg,
-                styles.logo
-              )}>
-                <Text style={combine(
-                  tw.textBlack,
-                  tw.fontBold,
-                  tw.text3xl
-                )}>P</Text>
+            <FadeInView style={tw.itemsCenter}>
+              <View style={styles.logo}>
+                <Text style={styles.logoText}>P</Text>
               </View>
-            </View>
+            </FadeInView>
           </View>
 
-          <View style={combine(
-            tw.bgWhite,
-            styles.formContainer
-          )}>
-            <Text style={combine(
-              tw.textBlack,
-              tw.fontBold,
-              tw.text3xl,
-              tw.mb(30)
-            )}>Login</Text>
-            
+          <FadeInView style={styles.formContainer} delay={80}>
+            <Text style={styles.title}>Login</Text>
+
             <View style={tw.wFull}>
               <View style={tw.mb(20)}>
-                <Text style={combine(
-                  tw.textGray700,
-                  tw.fontMedium,
-                  tw.textBase,
-                  tw.mb(8)
-                )}>Email</Text>
+                <Text style={styles.label}>Email</Text>
                 <TextInput
-                  style={combine(
-                    tw.bgGray100,
-                    tw.rounded,
-                    tw.px(18),
-                    tw.py(15),
-                    tw.textBase,
-                    tw.textBlack
-                  )}
+                  style={styles.input}
                   placeholder="prath0mkale@gmail.com"
-                  placeholderTextColor="#bbb"
+                  placeholderTextColor={colors.textTertiary}
                   value={email}
                   onChangeText={setEmail}
                   keyboardType="email-address"
@@ -182,91 +139,58 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onNavigateToSignUp, onLoginSu
               </View>
 
               <View style={tw.mb(20)}>
-                <Text style={combine(
-                  tw.textGray700,
-                  tw.fontMedium,
-                  tw.textBase,
-                  tw.mb(8)
-                )}>Password</Text>
-                <View style={combine(tw.relative)}>
+                <Text style={styles.label}>Password</Text>
+                <View style={tw.relative}>
                   <TextInput
-                    style={combine(
-                      tw.bgGray100,
-                      tw.rounded,
-                      tw.px(18),
-                      tw.py(15),
-                      tw.textBase,
-                      tw.textBlack,
-                      { paddingRight: 50 }
-                    )}
+                    style={[styles.input, { paddingRight: 50 }]}
                     placeholder="••••••••"
-                    placeholderTextColor="#bbb"
+                    placeholderTextColor={colors.textTertiary}
                     value={password}
                     onChangeText={setPassword}
                     secureTextEntry={!showPassword}
                   />
-                  <TouchableOpacity
-                    style={combine(
-                      tw.absolute,
-                      { right: 15, top: 15, bottom: 15, justifyContent: 'center' }
-                    )}
+                  <AnimatedPressable
+                    style={styles.eyeButton}
                     onPress={() => setShowPassword(!showPassword)}
                   >
                     <Ionicons
                       name={showPassword ? 'eye-off' : 'eye'}
                       size={20}
-                      color="#666"
+                      color={colors.textSecondary}
                     />
-                  </TouchableOpacity>
+                  </AnimatedPressable>
                 </View>
               </View>
 
-              <TouchableOpacity
-                style={combine(
-                  loading ? tw.bgGray(200) : tw.bgBlack,
-                  tw.rounded,
-                  tw.py(16),
-                  tw.itemsCenter,
-                  tw.mt(25)
-                )}
+              <AnimatedPressable
+                style={[styles.loginButton, loading && styles.loginButtonDisabled]}
                 onPress={handleLogin}
                 disabled={loading}
               >
-                <Text style={combine(
-                  tw.textWhite,
-                  tw.textBase,
-                  tw.fontSemibold
-                )}>
+                <Text style={styles.loginButtonText}>
                   {loading ? 'Logging in...' : 'Login'}
                 </Text>
-              </TouchableOpacity>
+              </AnimatedPressable>
             </View>
-          </View>
+          </FadeInView>
         </ScrollView>
-        
+
         {/* Bottom Sign Up Link */}
-        <View style={combine(
-          tw.bgWhite,
-          tw.px(20),
-          tw.py(20),
-          tw.flexRow,
-          tw.justifyCenter,
-          styles.bottomContainer
-        )}>
-          <Text style={combine(tw.textSm, tw.textGray600)}>Don't have any account? </Text>
-          <TouchableOpacity onPress={onNavigateToSignUp}>
-            <Text style={combine(tw.textSm, tw.textBlack, tw.fontSemibold)}>Sign Up</Text>
-          </TouchableOpacity>
+        <View style={styles.bottomContainer}>
+          <Text style={styles.bottomText}>Don't have any account? </Text>
+          <AnimatedPressable onPress={onNavigateToSignUp}>
+            <Text style={styles.bottomLink}>Sign Up</Text>
+          </AnimatedPressable>
         </View>
       </KeyboardAvoidingView>
     </View>
   );
 };
 
-const styles = StyleSheet.create({
+const createStyles = (colors: ThemeColors) => StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#000',
+    backgroundColor: colors.bg,
     paddingTop: Platform.OS === 'ios' ? 50 : 25,
   },
   keyboardAvoidingView: {
@@ -277,8 +201,8 @@ const styles = StyleSheet.create({
     minHeight: height - (Platform.OS === 'ios' ? 90 : 65),
   },
   header: {
-    height: height * 0.4,
-    backgroundColor: '#000',
+    height: height * 0.32,
+    backgroundColor: colors.bg,
     justifyContent: 'center',
     alignItems: 'center',
     overflow: 'hidden',
@@ -286,21 +210,85 @@ const styles = StyleSheet.create({
   logo: {
     width: 70,
     height: 70,
-    borderRadius: 15,
+    borderRadius: radius.md,
     justifyContent: 'center',
     alignItems: 'center',
+    backgroundColor: colors.primary,
+    ...shadow.soft,
+  },
+  logoText: {
+    color: colors.onPrimary,
+    fontSize: 30,
+    fontWeight: '800',
   },
   formContainer: {
     flex: 1,
-    borderTopLeftRadius: 25,
-    borderTopRightRadius: 25,
-    paddingHorizontal: 35,
-    paddingTop: 35,
-    paddingBottom: 20,
+    backgroundColor: colors.surface,
+    borderTopLeftRadius: radius.lg,
+    borderTopRightRadius: radius.lg,
+    paddingHorizontal: spacing(9),
+    paddingTop: spacing(9),
+    paddingBottom: spacing(5),
+  },
+  title: {
+    fontSize: 30,
+    fontWeight: '800',
+    color: colors.textPrimary,
+    marginBottom: spacing(8),
+  },
+  label: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: colors.textSecondary,
+    marginBottom: spacing(2),
+  },
+  input: {
+    backgroundColor: colors.surfaceAlt,
+    borderRadius: radius.sm,
+    paddingHorizontal: spacing(4.5),
+    paddingVertical: spacing(4),
+    fontSize: 16,
+    color: colors.textPrimary,
+  },
+  eyeButton: {
+    position: 'absolute',
+    right: 15,
+    top: 15,
+    bottom: 15,
+    justifyContent: 'center',
+  },
+  loginButton: {
+    borderRadius: radius.sm,
+    paddingVertical: spacing(4),
+    alignItems: 'center',
+    marginTop: spacing(6),
+    backgroundColor: colors.primary,
+  },
+  loginButtonDisabled: {
+    opacity: 0.5,
+  },
+  loginButtonText: {
+    color: colors.onPrimary,
+    fontSize: 16,
+    fontWeight: '600',
   },
   bottomContainer: {
+    backgroundColor: colors.surface,
+    paddingHorizontal: spacing(5),
+    paddingVertical: spacing(5),
+    flexDirection: 'row',
+    justifyContent: 'center',
     borderTopWidth: 1,
-    borderTopColor: '#f0f0f0',
+    borderTopColor: colors.border,
+  },
+  bottomText: {
+    fontSize: 14,
+    color: colors.textSecondary,
+  },
+  bottomLink: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: colors.primary,
   },
 });
 
