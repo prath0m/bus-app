@@ -22,6 +22,7 @@ import { getWhatsAppTemplate, DEFAULT_WHATSAPP_TEMPLATE } from '../utils/prefere
 import { fillTemplate, sendWhatsAppReminder, buildReceiptMessage } from '../utils/whatsapp';
 
 interface StudentDetailScreenProps {
+  onNavigateToMap?: () => void;
   student: Student;
   schoolName: string;
   user?: { firstName: string; lastName: string };
@@ -34,6 +35,7 @@ interface StudentDetailScreenProps {
 }
 
 const StudentDetailScreen: React.FC<StudentDetailScreenProps> = ({
+  onNavigateToMap,
   student,
   schoolName,
   user,
@@ -90,6 +92,7 @@ const StudentDetailScreen: React.FC<StudentDetailScreenProps> = ({
       case 'routes':
         onNavigateToRoutes?.();
         break;
+      case 'map': onNavigateToMap?.(); break;
       case 'profile':
         onNavigateToProfile?.();
         break;

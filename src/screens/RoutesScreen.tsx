@@ -10,6 +10,7 @@ import { useAppTheme, useThemedStyles } from '../context/ThemeContext';
 import { studentAPI, Student } from '../services/api';
 
 interface RoutesScreenProps {
+  onNavigateToMap?: () => void;
   user: {
     id: string;
     firstName: string;
@@ -27,6 +28,7 @@ interface RoutesScreenProps {
 }
 
 const RoutesScreen: React.FC<RoutesScreenProps> = ({
+  onNavigateToMap,
   user,
   onBack,
   onNavigateToHome,
@@ -79,6 +81,7 @@ const RoutesScreen: React.FC<RoutesScreenProps> = ({
         break;
       case 'routes':
         break;
+      case 'map': onNavigateToMap?.(); break;
       case 'profile':
         onNavigateToProfile?.();
         break;

@@ -17,6 +17,7 @@ import { ThemeColors, radius, spacing } from '../utils/theme';
 import { useAppTheme, useThemedStyles } from '../context/ThemeContext';
 
 interface ProfileScreenProps {
+  onNavigateToMap?: () => void;
   user: User;
   onBack: () => void;
   onUserUpdate: (updatedUser: User) => void;
@@ -28,6 +29,7 @@ interface ProfileScreenProps {
 }
 
 const ProfileScreen: React.FC<ProfileScreenProps> = ({
+  onNavigateToMap,
   user,
   onBack,
   onUserUpdate,
@@ -66,6 +68,7 @@ const ProfileScreen: React.FC<ProfileScreenProps> = ({
       case 'routes':
         onNavigateToRoutes?.();
         break;
+      case 'map': onNavigateToMap?.(); break;
       case 'profile':
         break;
       default:

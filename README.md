@@ -1,6 +1,15 @@
 # School Bus Payment Tracker
 
-A cross-platform React Native Expo application for school bus owners to manage students, schools, and track monthly payment records.
+A cross-platform React Native Expo application for school bus owners to manage students, schools, and track monthly payment records — with a parent app for live bus tracking.
+
+## User Roles
+
+| Role | How the account is created | What they see |
+|------|---------------------------|---------------|
+| **Owner** | On the server only: `cd backend && npm run create-owner -- --first Ramesh --last Patil --email ramesh@example.com --mobile 9876543210 --password secret123` (pass just `--email` to promote an existing account) | Full app: students, schools, payments, plus the **Map** tab |
+| **Parent** | Self sign-up in the app. Only allowed if the mobile number matches a student's contact number saved by the owner | Their children, this month's fee status, payment history, live bus location, home location |
+
+Parents are linked to children by phone number (last 10 digits), so an owner just needs to save the parent's number on the student.
 
 ## Features
 
@@ -11,12 +20,15 @@ A cross-platform React Native Expo application for school bus owners to manage s
 - **Routes** — Organize students by bus routes
 - **Payment History** — View historical payment records
 - **Profile & Settings** — Manage user profile and app preferences
+- **Live Bus Tracking** — Owner shares the bus's live GPS location from the Map tab; parents see it on a map with distance from home
+- **Home Locations** — Parents pin their home on the map; the owner sees every pickup point on the route map
 
 ## Tech Stack
 
 | Layer | Technology |
 |-------|-----------|
-| Frontend | React Native (Expo SDK 54), TypeScript |
+| Frontend | React Native (Expo SDK 57), TypeScript |
+| Maps | react-native-maps (Google Maps on Android, Apple Maps on iOS), expo-location |
 | Backend | Node.js, Express.js |
 | Database | MongoDB (Mongoose ODM) |
 | Auth | JWT (jsonwebtoken), bcrypt |
@@ -133,12 +145,19 @@ Scan the QR code with **Expo Go** (iOS/Android) or press:
 
 > **Note:** Update `API_BASE_URL` in `src/services/api.ts` with your machine's local IP if testing on a physical device.
 
+### Maps & location notes
+
+- **Expo Go** works out of the box for maps and location (no API key needed).
+- **Standalone / development builds on Android** need a Google Maps API key (enable "Maps SDK for Android" in Google Cloud), added to the `plugins` in `app.json`:
+  `["react-native-maps", { "androidGoogleMapsApiKey": "YOUR_KEY" }]`, then run `npx expo prebuild --clean`.
+- Live sharing runs while the app is open on the owner's phone (foreground). If the app is closed or loses signal, parents see the bus as offline after 2 minutes.
+
 ## API Endpoints
 
 ### Authentication
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| POST | `/api/auth/signup` | Register a new user |
+| POST | `/api/auth/signup` | Register a parent (mobile must match a student's contact number) |
 | POST | `/api/auth/login` | Login |
 | POST | `/api/auth/verify` | Verify JWT token |
 
@@ -159,6 +178,22 @@ Scan the QR code with **Expo Go** (iOS/Android) or press:
 |--------|----------|-------------|
 | GET | `/api/students` | List students |
 | POST | `/api/students` | Add a student |
+
+### Parent (parent role only)
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/parent/children` | Children with this month's fee status and the parent's home location |
+| GET | `/api/parent/children/:studentId/payments` | Payment history for one child |
+| GET | `/api/parent/bus-locations` | Live location of each bus carrying the parent's children |
+| PUT | `/api/parent/home-location` | Save home location `{ latitude, longitude, address? }` |
+
+### Location (owner role only)
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| PUT | `/api/location/bus` | Update live bus location `{ latitude, longitude, heading?, speed? }` |
+| POST | `/api/location/bus/stop` | Stop sharing |
+| GET | `/api/location/bus` | Owner's last shared location |
+| GET | `/api/location/homes` | Parents' home locations and students still missing one |
 
 ### Health
 | Method | Endpoint | Description |
@@ -182,6 +217,7 @@ Scan the QR code with **Expo Go** (iOS/Android) or press:
 |---------|-------------|
 | `npm start` | Start server |
 | `npm run dev` | Start with nodemon (auto-reload) |
+| `npm run create-owner -- --first … --last … --email … --mobile … --password …` | Create a bus owner account |
 
 ## Security
 

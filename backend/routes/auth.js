@@ -2,6 +2,8 @@ const express = require('express');
 const jwt = require('jsonwebtoken');
 const { body, validationResult } = require('express-validator');
 const User = require('../models/User');
+const Student = require('../models/Student');
+const { phoneSuffix, phoneMatchQuery } = require('../middleware/auth');
 
 const router = express.Router();
 
@@ -59,7 +61,8 @@ const generateToken = (userId) => {
 };
 
 // @route   POST /api/auth/signup
-// @desc    Register a new user
+// @desc    Register a new parent. Owner accounts are created on the server
+//          with scripts/createOwner.js, never through the app.
 // @access  Public
 router.post('/signup', signupValidation, async (req, res) => {
   try {
@@ -73,7 +76,26 @@ router.post('/signup', signupValidation, async (req, res) => {
       });
     }
 
-    const { firstName, lastName, email, mobileNumber, password, busRoute } = req.body;
+    const { firstName, lastName, email, mobileNumber, password } = req.body;
+
+    // Only parents whose number the bus owner has already saved on a student
+    // can register — that number is what links the parent to their children.
+    if (phoneSuffix(mobileNumber).length !== 10) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please enter a valid 10-digit mobile number'
+      });
+    }
+    const childCount = await Student.countDocuments({
+      contactNumber: phoneMatchQuery(mobileNumber),
+      isActive: true
+    });
+    if (childCount === 0) {
+      return res.status(403).json({
+        success: false,
+        message: 'This mobile number is not linked to any student. Please ask your bus owner to add it to your child\'s details first.'
+      });
+    }
 
     // Check if user already exists
     const existingUser = await User.findOne({
@@ -98,7 +120,7 @@ router.post('/signup', signupValidation, async (req, res) => {
       email: email.toLowerCase(),
       mobileNumber,
       password,
-      busRoute
+      role: 'parent'
     });
 
     await user.save();
@@ -120,6 +142,7 @@ router.post('/signup', signupValidation, async (req, res) => {
           mobileNumber: user.mobileNumber,
           busRoute: user.busRoute,
           role: user.role,
+          homeLocation: user.homeLocation,
           createdAt: user.createdAt
         }
       }
@@ -201,6 +224,7 @@ router.post('/login', loginValidation, async (req, res) => {
           mobileNumber: user.mobileNumber,
           busRoute: user.busRoute,
           role: user.role,
+          homeLocation: user.homeLocation,
           lastLogin: user.lastLogin,
           createdAt: user.createdAt
         }
@@ -256,6 +280,7 @@ router.post('/verify', async (req, res) => {
           mobileNumber: user.mobileNumber,
           busRoute: user.busRoute,
           role: user.role,
+          homeLocation: user.homeLocation,
           lastLogin: user.lastLogin,
           createdAt: user.createdAt
         }

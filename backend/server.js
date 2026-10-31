@@ -9,6 +9,8 @@ const userRoutes = require('./routes/users');
 const schoolRoutes = require('./routes/schools');
 const studentRoutes = require('./routes/students');
 const paymentRoutes = require('./routes/payments');
+const parentRoutes = require('./routes/parent');
+const locationRoutes = require('./routes/location');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -25,6 +27,8 @@ app.use('/api/users', userRoutes);
 app.use('/api/schools', schoolRoutes);
 app.use('/api/students', studentRoutes);
 app.use('/api/payments', paymentRoutes);
+app.use('/api/parent', parentRoutes);
+app.use('/api/location', locationRoutes);
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {

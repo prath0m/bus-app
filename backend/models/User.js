@@ -56,6 +56,13 @@ const userSchema = new mongoose.Schema({
     enum: ['owner', 'parent', 'admin'],
     default: 'owner'
   },
+  // Parent's pickup/drop point, shown on the owner's map
+  homeLocation: {
+    latitude: { type: Number, min: -90, max: 90 },
+    longitude: { type: Number, min: -180, max: 180 },
+    address: { type: String, trim: true, maxlength: 200 },
+    updatedAt: { type: Date }
+  },
   isActive: {
     type: Boolean,
     default: true

@@ -11,6 +11,7 @@ import { AnimatedPressable, FadeInView } from '../components/ui/Animated';
 import { MonthYear } from '../utils/monthRange';
 
 interface CreateScreenProps {
+  onNavigateToMap?: () => void;
   user: {
     id: string;
     firstName: string;
@@ -57,6 +58,7 @@ const paymentModeOptions = ['Cash', 'Online'];
 const paymentPeriodOptions = ['Monthly', 'Quarterly', 'Half Yearly', 'Yearly', 'Custom'];
 
 const CreateScreen: React.FC<CreateScreenProps> = ({
+  onNavigateToMap,
   user,
   onBack,
   onNavigateToHome,
@@ -539,6 +541,7 @@ const CreateScreen: React.FC<CreateScreenProps> = ({
       case 'routes':
         onNavigateToRoutes?.();
         break;
+      case 'map': onNavigateToMap?.(); break;
       case 'profile':
         onNavigateToProfile?.();
         break;
