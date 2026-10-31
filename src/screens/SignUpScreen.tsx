@@ -114,6 +114,8 @@ const SignUpScreen: React.FC<SignUpScreenProps> = ({ onNavigateToLogin, onSignUp
         } else if (error.message.toLowerCase().includes('user with this mobile number already exists')) {
           errorTitle = 'Mobile Number Already Registered';
           errorMessage = 'An account with this mobile number already exists. Please use a different number or try logging in.';
+        } else if (error.message.toLowerCase().includes('not linked to any student')) {
+          errorTitle = 'Number Not Found';
         } else if (error.message.toLowerCase().includes('network')) {
           errorTitle = 'Connection Error';
           errorMessage = 'Unable to connect to server. Please check your internet connection and try again.';
@@ -142,7 +144,7 @@ const SignUpScreen: React.FC<SignUpScreenProps> = ({ onNavigateToLogin, onSignUp
           <AnimatedPressable style={styles.iconButton} onPress={onNavigateToLogin}>
             <Ionicons name="arrow-back" size={24} color={colors.textPrimary} />
           </AnimatedPressable>
-          <Text style={styles.headerTitle}>Sign Up</Text>
+          <Text style={styles.headerTitle}>Parent Sign Up</Text>
           <View style={tw.w(40)} />
         </View>
       </View>
@@ -158,6 +160,13 @@ const SignUpScreen: React.FC<SignUpScreenProps> = ({ onNavigateToLogin, onSignUp
         >
           <FadeInView style={styles.formContainer}>
             <View style={tw.wFull}>
+              <View style={styles.infoBox}>
+                <Ionicons name="information-circle" size={18} color={colors.textSecondary} />
+                <Text style={styles.infoText}>
+                  Sign up with the mobile number your bus owner has saved for your child. Bus owners are set up by the admin.
+                </Text>
+              </View>
+
               <View style={tw.mb(16)}>
                 <Text style={styles.label}>First name</Text>
                 <TextInput
@@ -321,6 +330,21 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
     borderTopRightRadius: radius.lg,
     paddingHorizontal: spacing(9),
     paddingTop: spacing(9),
+  },
+  infoBox: {
+    flexDirection: 'row',
+    gap: spacing(2),
+    backgroundColor: colors.surfaceAlt,
+    borderRadius: radius.sm,
+    padding: spacing(3),
+    marginBottom: spacing(5),
+  },
+  infoText: {
+    flex: 1,
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '500',
+    color: colors.textSecondary,
   },
   label: {
     fontSize: 14,

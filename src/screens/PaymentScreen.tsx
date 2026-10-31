@@ -28,6 +28,7 @@ import { notifyOverdueSummaryOncePerDay } from '../utils/notifications';
 import { getAcademicStartYear } from '../utils/academicYear';
 
 interface PaymentScreenProps {
+  onNavigateToMap?: () => void;
   user: {
     id: string;
     firstName: string;
@@ -47,6 +48,7 @@ interface PaymentScreenProps {
 const getInitials = (name: string) => name.split(' ').map((n) => n.charAt(0)).join('').slice(0, 2).toUpperCase();
 
 const PaymentScreen: React.FC<PaymentScreenProps> = ({
+  onNavigateToMap,
   user,
   onBack,
   onNavigateToHome,
@@ -168,6 +170,7 @@ const PaymentScreen: React.FC<PaymentScreenProps> = ({
       case 'payment': break;
       case 'create': onNavigateToCreate?.(); break;
       case 'routes': onNavigateToRoutes?.(); break;
+      case 'map': onNavigateToMap?.(); break;
       case 'profile': onNavigateToProfile?.(); break;
       default: break;
     }

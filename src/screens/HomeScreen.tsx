@@ -23,6 +23,7 @@ import { fillTemplate, sendWhatsAppReminder, buildReceiptMessage } from '../util
 const { height } = Dimensions.get('window');
 
 interface HomeScreenProps {
+  onNavigateToMap?: () => void;
   user: {
     id: string;
     firstName: string;
@@ -54,6 +55,7 @@ const formatRelativeTime = (dateString: string): string => {
 };
 
 const HomeScreen = ({
+  onNavigateToMap,
   user,
   onNavigateToProfile,
   onLogout,
@@ -184,6 +186,7 @@ const HomeScreen = ({
       case 'routes':
         onNavigateToRoutes?.();
         break;
+      case 'map': onNavigateToMap?.(); break;
       case 'profile':
         onNavigateToProfile();
         break;

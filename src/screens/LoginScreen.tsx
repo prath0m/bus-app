@@ -177,7 +177,7 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ onNavigateToSignUp, onLoginSu
 
         {/* Bottom Sign Up Link */}
         <View style={styles.bottomContainer}>
-          <Text style={styles.bottomText}>Don't have any account? </Text>
+          <Text style={styles.bottomText}>Parent without an account? </Text>
           <AnimatedPressable onPress={onNavigateToSignUp}>
             <Text style={styles.bottomLink}>Sign Up</Text>
           </AnimatedPressable>

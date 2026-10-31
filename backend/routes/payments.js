@@ -343,3 +343,6 @@ router.put('/:paymentId', async (req, res) => {
 });
 
 module.exports = router;
+
+// Shared with the parent routes so both return the same payment shape
+module.exports.serializePayment = serializePayment;

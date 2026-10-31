@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { View, AppState, AppStateStatus } from 'react-native';
+import { View, AppState, AppStateStatus, ActivityIndicator } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import LoginScreen from './src/screens/LoginScreen';
 import SignUpScreen from './src/screens/SignUpScreen';
@@ -12,12 +12,21 @@ import RoutesScreen from './src/screens/RoutesScreen';
 import StudentDetailScreen from './src/screens/StudentDetailScreen';
 import HistoryScreen from './src/screens/HistoryScreen';
 import LockScreen from './src/screens/LockScreen';
-import { authAPI, User, Student } from './src/services/api';
+import OwnerMapScreen from './src/screens/OwnerMapScreen';
+import ParentHomeScreen from './src/screens/ParentHomeScreen';
+import ParentMapScreen, { ParentMapMode } from './src/screens/ParentMapScreen';
+import { authAPI, User, Student, HomeLocation } from './src/services/api';
+import { stopSharing } from './src/utils/liveLocation';
 import { requestNotificationPermission } from './src/utils/notifications';
 import { ThemeProvider, useAppTheme } from './src/context/ThemeContext';
 import { isAppLockEnabled } from './src/utils/appLock';
 
-type ScreenType = 'Login' | 'SignUp' | 'Home' | 'Profile' | 'Settings' | 'Payment' | 'Create' | 'Routes' | 'StudentDetail' | 'History';
+type ScreenType =
+  | 'Login' | 'SignUp' | 'Home' | 'Profile' | 'Settings' | 'Payment' | 'Create' | 'Routes' | 'StudentDetail' | 'History' | 'OwnerMap'
+  | 'ParentHome' | 'ParentMap';
+
+// Parents get their own screens; everyone else (owner/admin) gets the owner app
+const homeScreenFor = (user: User): ScreenType => (user.role === 'parent' ? 'ParentHome' : 'Home');
 
 export default function App() {
   return (
@@ -34,6 +43,8 @@ function AppContent() {
   const [isLoading, setIsLoading] = useState(true);
   const [selectedStudent, setSelectedStudent] = useState<{ student: Student; schoolName: string } | null>(null);
   const [isLocked, setIsLocked] = useState(false);
+  const [homeLocation, setHomeLocation] = useState<HomeLocation | null>(null);
+  const [parentMapMode, setParentMapMode] = useState<ParentMapMode>('track');
   const appState = useRef(AppState.currentState);
 
   // Check if user is already logged in
@@ -59,7 +70,8 @@ function AppContent() {
     try {
       const userData = await authAPI.verifyToken();
       setUser(userData);
-      setCurrentScreen('Home');
+      setHomeLocation(userData.homeLocation?.latitude != null ? userData.homeLocation : null);
+      setCurrentScreen(homeScreenFor(userData));
       const enabled = await isAppLockEnabled();
       if (enabled) setIsLocked(true);
     } catch (error) {
@@ -80,7 +92,8 @@ function AppContent() {
 
   const navigateToHome = (userData: User) => {
     setUser(userData);
-    setCurrentScreen('Home');
+    setHomeLocation(userData.homeLocation?.latitude != null ? userData.homeLocation : null);
+    setCurrentScreen(homeScreenFor(userData));
   };
 
   const navigateToProfile = () => {
@@ -107,6 +120,15 @@ function AppContent() {
     setCurrentScreen('History');
   };
 
+  const navigateToMap = () => {
+    setCurrentScreen('OwnerMap');
+  };
+
+  const openParentMap = (mode: ParentMapMode) => {
+    setParentMapMode(mode);
+    setCurrentScreen('ParentMap');
+  };
+
   const navigateToStudentDetail = (student: Student, schoolName: string) => {
     setSelectedStudent({ student, schoolName });
     setCurrentScreen('StudentDetail');
@@ -120,8 +142,11 @@ function AppContent() {
     setUser(updatedUser);
   };
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    await stopSharing();
+    await authAPI.logout();
     setUser(null);
+    setHomeLocation(null);
     setIsLocked(false);
     setCurrentScreen('Login');
   };
@@ -130,7 +155,7 @@ function AppContent() {
   if (isLoading) {
     return (
       <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: colors.bg }}>
-        {/* You can add a loading spinner here */}
+        <ActivityIndicator size="large" color={colors.textSecondary} />
       </View>
     );
   }
@@ -157,8 +182,34 @@ function AppContent() {
           onNavigateToLogin={navigateToLogin}
           onSignUpSuccess={navigateToHome}
         />
+      ) : user?.role === 'parent' ? (
+        currentScreen === 'ParentMap' ? (
+          <ParentMapScreen
+            initialMode={parentMapMode}
+            homeLocation={homeLocation}
+            onBack={() => setCurrentScreen('ParentHome')}
+            onHomeSaved={setHomeLocation}
+          />
+        ) : (
+          <ParentHomeScreen
+            user={user}
+            homeLocation={homeLocation}
+            onHomeLocationLoaded={setHomeLocation}
+            onOpenMap={openParentMap}
+            onLogout={handleLogout}
+          />
+        )
+      ) : currentScreen === 'OwnerMap' ? (
+        <OwnerMapScreen
+          onNavigateToHome={navigateBackToHome}
+          onNavigateToPayment={navigateToPayment}
+          onNavigateToCreate={navigateToCreate}
+          onNavigateToRoutes={navigateToRoutes}
+          onNavigateToProfile={navigateToProfile}
+        />
       ) : currentScreen === 'Profile' ? (
         <ProfileScreen 
+          onNavigateToMap={navigateToMap}
           user={user!}
           onBack={navigateBackToHome}
           onUserUpdate={handleUserUpdate}
@@ -174,6 +225,7 @@ function AppContent() {
         />
       ) : currentScreen === 'Payment' ? (
         <PaymentScreen
+          onNavigateToMap={navigateToMap}
           user={user!}
           onBack={navigateBackToHome}
           onNavigateToHome={navigateBackToHome}
@@ -184,6 +236,7 @@ function AppContent() {
         />
       ) : currentScreen === 'History' ? (
         <HistoryScreen
+          onNavigateToMap={navigateToMap}
           user={user!}
           onBack={navigateToPayment}
           onNavigateToHome={navigateBackToHome}
@@ -194,6 +247,7 @@ function AppContent() {
         />
       ) : currentScreen === 'Create' ? (
         <CreateScreen 
+          onNavigateToMap={navigateToMap}
           user={user!}
           onBack={navigateBackToHome}
           onNavigateToHome={navigateBackToHome}
@@ -204,6 +258,7 @@ function AppContent() {
         />
       ) : currentScreen === 'StudentDetail' && selectedStudent ? (
         <StudentDetailScreen
+          onNavigateToMap={navigateToMap}
           student={selectedStudent.student}
           schoolName={selectedStudent.schoolName}
           user={user ?? undefined}
@@ -216,6 +271,7 @@ function AppContent() {
         />
       ) : currentScreen === 'Routes' ? (
         <RoutesScreen 
+          onNavigateToMap={navigateToMap}
           user={user!}
           onBack={navigateBackToHome}
           onNavigateToHome={navigateBackToHome}
@@ -226,6 +282,7 @@ function AppContent() {
         />
       ) : (
         <HomeScreen 
+          onNavigateToMap={navigateToMap}
           user={user!} 
           onLogout={handleLogout}
           onNavigateToProfile={navigateToProfile}

@@ -1,9 +1,20 @@
+import Constants from 'expo-constants';
+
 // API Configuration
 // No hosted backend yet — the app talks to the Express server running on
 // your Mac (see backend/), so the phone must be on the same Wi-Fi network
-// and backend/server.js must be running. Update this IP if your Mac's LAN
-// address changes (check with `ipconfig getifaddr en0`).
-const API_BASE_URL = 'http://192.168.1.2:3001/api';
+// and backend/server.js must be running. The Mac's LAN IP is taken from the
+// Expo dev server's address so it follows Wi-Fi changes automatically;
+// FALLBACK_HOST is only used when that isn't available (e.g. tunnel mode or
+// a release build) — update it with `ipconfig getifaddr en0` if needed.
+const FALLBACK_HOST = '192.168.224.215';
+const devServerHost = Constants.expoConfig?.hostUri?.split(':')[0];
+const API_HOST = devServerHost && /^\d+\.\d+\.\d+\.\d+$/.test(devServerHost) ? devServerHost : FALLBACK_HOST;
+const API_BASE_URL = `http://${API_HOST}:3001/api`;
+
+// Without a timeout, a request to an unreachable server hangs until the OS
+// gives up (often a minute or more), which stalls app startup.
+const REQUEST_TIMEOUT_MS = 8000;
 
 // API Response Interface
 interface ApiResponse<T> {
@@ -25,8 +36,19 @@ export interface User {
   mobileNumber: string;
   busRoute?: string;
   role: 'owner' | 'parent' | 'admin';
+  homeLocation?: HomeLocation;
   lastLogin?: string;
   createdAt: string;
+}
+
+export interface LatLng {
+  latitude: number;
+  longitude: number;
+}
+
+export interface HomeLocation extends LatLng {
+  address?: string;
+  updatedAt?: string;
 }
 
 export interface SignupData {
@@ -170,6 +192,45 @@ export interface MarkPaidData {
   paidDate?: string;
 }
 
+// Parent / Map Interfaces
+export interface ParentChild {
+  id: string;
+  name: string;
+  dateOfJoining: string;
+  paymentPeriod: Student['paymentPeriod'];
+  paymentAmount: number;
+  school: { id: string; schoolName: string; schoolAddress: string; timing: string; shift: string } | null;
+  owner: { id: string; name: string; mobileNumber: string } | null;
+  currentPayment: Payment | null;
+  outstanding: number;
+}
+
+export interface BusLocation extends LatLng {
+  heading?: number;
+  speed?: number;
+  isLive: boolean;
+  updatedAt: string;
+}
+
+export interface BusInfo {
+  owner: { id: string; name: string; mobileNumber: string };
+  location: BusLocation | null;
+}
+
+export interface ParentHome extends HomeLocation {
+  parentId: string;
+  parentName: string;
+  mobileNumber: string;
+  students: { id: string; name: string; schoolName?: string }[];
+}
+
+export interface StudentWithoutHome {
+  id: string;
+  name: string;
+  contactNumber: string;
+  parentRegistered: boolean;
+}
+
 // Storage helpers for token management
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
@@ -221,12 +282,22 @@ const apiRequest = async <T>(
       ...options,
     };
 
-    const response = await fetch(fullUrl, config);
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+    let response: Response;
+    try {
+      response = await fetch(fullUrl, { ...config, signal: options.signal ?? controller.signal });
+    } catch (error) {
+      if (controller.signal.aborted) {
+        throw new Error(`Could not reach the server at ${API_BASE_URL}. Make sure the backend is running and you're on the same Wi-Fi.`);
+      }
+      throw error;
+    } finally {
+      clearTimeout(timeoutId);
+    }
     console.log('apiRequest: Response status:', response.status);
-    console.log('apiRequest: Response ok:', response.ok);
-    
+
     const data = await response.json();
-    console.log('apiRequest: Response data:', JSON.stringify(data, null, 2));
 
     if (!response.ok) {
       // Extract detailed error message
@@ -288,6 +359,11 @@ export const authAPI = {
 
   // Verify token
   verifyToken: async (): Promise<User> => {
+    // Skip the network round-trip entirely when nobody is logged in
+    if (!(await getAuthToken())) {
+      throw new Error('Not logged in');
+    }
+
     const response = await apiRequest<{ user: User }>('/auth/verify', {
       method: 'POST',
     });
@@ -608,10 +684,87 @@ export const paymentAPI = {
   },
 };
 
+// Parent API functions (parent role only)
+export const parentAPI = {
+  getChildren: async (): Promise<{ children: ParentChild[]; homeLocation: HomeLocation | null }> => {
+    const response = await apiRequest<{ children: ParentChild[]; homeLocation: HomeLocation | null }>('/parent/children');
+
+    if (response.success && response.data) {
+      return response.data;
+    }
+
+    throw new Error(response.message || 'Failed to fetch children');
+  },
+
+  getChildPayments: async (studentId: string): Promise<Payment[]> => {
+    const response = await apiRequest<{ payments: Payment[] }>(`/parent/children/${studentId}/payments`);
+
+    if (response.success && response.data) {
+      return response.data.payments;
+    }
+
+    throw new Error(response.message || 'Failed to fetch payment history');
+  },
+
+  getBusLocations: async (): Promise<BusInfo[]> => {
+    const response = await apiRequest<{ buses: BusInfo[] }>('/parent/bus-locations');
+
+    if (response.success && response.data) {
+      return response.data.buses;
+    }
+
+    throw new Error(response.message || 'Failed to fetch bus location');
+  },
+
+  setHomeLocation: async (location: HomeLocation): Promise<HomeLocation> => {
+    const response = await apiRequest<{ homeLocation: HomeLocation }>('/parent/home-location', {
+      method: 'PUT',
+      body: JSON.stringify(location),
+    });
+
+    if (response.success && response.data) {
+      return response.data.homeLocation;
+    }
+
+    throw new Error(response.message || 'Failed to save home location');
+  },
+};
+
+// Live location API functions (owner role only)
+export const locationAPI = {
+  updateBusLocation: async (location: LatLng & { heading?: number | null; speed?: number | null }): Promise<void> => {
+    await apiRequest('/location/bus', {
+      method: 'PUT',
+      body: JSON.stringify(location),
+    });
+  },
+
+  stopSharing: async (): Promise<void> => {
+    await apiRequest('/location/bus/stop', { method: 'POST' });
+  },
+
+  getBusLocation: async (): Promise<BusLocation | null> => {
+    const response = await apiRequest<{ location: BusLocation | null }>('/location/bus');
+    return response.data?.location ?? null;
+  },
+
+  getParentHomes: async (): Promise<{ homes: ParentHome[]; missing: StudentWithoutHome[] }> => {
+    const response = await apiRequest<{ homes: ParentHome[]; missing: StudentWithoutHome[] }>('/location/homes');
+
+    if (response.success && response.data) {
+      return response.data;
+    }
+
+    throw new Error(response.message || 'Failed to fetch home locations');
+  },
+};
+
 export default {
   authAPI,
   userAPI,
   schoolAPI,
   studentAPI,
   paymentAPI,
+  parentAPI,
+  locationAPI,
 };

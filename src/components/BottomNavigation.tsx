@@ -5,7 +5,7 @@ import { ThemeColors, radius, spacing, shadow } from '../utils/theme';
 import { useAppTheme, useThemedStyles } from '../context/ThemeContext';
 import { AnimatedPressable } from './ui/Animated';
 
-export type TabName = 'home' | 'payment' | 'create' | 'routes' | 'profile';
+export type TabName = 'home' | 'payment' | 'create' | 'routes' | 'map' | 'profile';
 
 interface BottomNavigationProps {
   activeTab: TabName;
@@ -17,6 +17,7 @@ const TABS: { name: TabName; label: string; icon: keyof typeof Ionicons.glyphMap
   { name: 'payment', label: 'Payments', icon: 'card' },
   { name: 'create', label: 'Add', icon: 'add-circle' },
   { name: 'routes', label: 'Students', icon: 'people' },
+  { name: 'map', label: 'Map', icon: 'map' },
   { name: 'profile', label: 'Profile', icon: 'person' },
 ];
 

@@ -24,6 +24,7 @@ import { getWhatsAppTemplate, DEFAULT_WHATSAPP_TEMPLATE } from '../utils/prefere
 import { fillTemplate, sendWhatsAppReminder, buildReceiptMessage } from '../utils/whatsapp';
 
 interface HistoryScreenProps {
+  onNavigateToMap?: () => void;
   user: {
     id: string;
     firstName: string;
@@ -41,6 +42,7 @@ interface HistoryScreenProps {
 }
 
 const HistoryScreen: React.FC<HistoryScreenProps> = ({
+  onNavigateToMap,
   user,
   onBack,
   onNavigateToHome,
@@ -162,6 +164,7 @@ const HistoryScreen: React.FC<HistoryScreenProps> = ({
       case 'payment': onNavigateToPayment?.(); break;
       case 'create': onNavigateToCreate?.(); break;
       case 'routes': onNavigateToRoutes?.(); break;
+      case 'map': onNavigateToMap?.(); break;
       case 'profile': onNavigateToProfile?.(); break;
       default: break;
     }
